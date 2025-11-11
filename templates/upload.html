@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Music - Music Upload Service{% endblock %}
+
+{% block nav %}
+<a href="/upload">Upload</a>
+<a href="/logs">History</a>
+<a href="/admin" id="adminLink" style="display: none;">Admin</a>
+<button onclick="logout()">Logout</button>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px; color: #333;">Upload Music</h2>
+
+<div id="alert" class="alert" style="display: none;"></div>
+
+<div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p style="margin-top: 10px;" id="loadingText">Processing...</p>
+</div>
+
+<div id="forms">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+        <!-- File Upload -->
+        <div style="border: 2px solid #667eea; border-radius: 10px; padding: 20px;">
+            <h3 style="color: #667eea; margin-bottom: 20px;">Upload Files</h3>
+            <form id="fileUploadForm">
+                <div class="form-group">
+                    <label for="files">Select audio files to upload</label>
+                    <input type="file" id="files" name="files" multiple accept="audio/*,.mp3,.flac,.ogg,.opus,.m4a,.wav,.aac">
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        Allowed formats: MP3, FLAC, OGG, OPUS, M4A, WAV, AAC
+                    </small>
+                </div>
+
+                <button type="submit" class="btn" style="width: 100%;">Upload Files</button>
+            </form>
+        </div>
+
+        <!-- YouTube Download -->
+        <div style="border: 2px solid #764ba2; border-radius: 10px; padding: 20px;">
+            <h3 style="color: #764ba2; margin-bottom: 20px;">Download from YouTube</h3>
+            <form id="youtubeForm">
+                <div class="form-group">
+                    <label for="youtubeUrl">YouTube URL</label>
+                    <input type="url" id="youtubeUrl" name="url" placeholder="https://www.youtube.com/watch?v=..." required>
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        Only download content you have rights to use (CC0, public domain, or your own content)
+                    </small>
+                </div>
+
+                <button type="submit" class="btn" style="width: 100%; background: #764ba2;">Download Audio</button>
+            </form>
+        </div>
+    </div>
+
+    <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+        <h3 style="color: #333; margin-bottom: 15px;">How it works</h3>
+        <ol style="padding-left: 20px; color: #666; line-height: 1.8;">
+            <li>Upload your audio files or provide a YouTube URL</li>
+            <li>Files are temporarily stored in the processing directory</li>
+            <li>Ferric processes the files (converts FLAC to OPUS, organizes, and normalizes)</li>
+            <li>Processed files are merged into the Navidrome music library</li>
+            <li>You can then access your music through Navidrome at music.jcledesma.xyz</li>
+        </ol>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Check authentication
+    const token = localStorage.getItem('token');
+    if (!token) {
+        window.location.href = '/';
+    }
+
+    // Show admin link if user is admin
+    const isAdmin = localStorage.getItem('isAdmin') === 'true';
+    if (isAdmin) {
+        document.getElementById('adminLink').style.display = 'block';
+    }
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = '/';
+    }
+
+    function showAlert(message, type) {
+        const alert = document.getElementById('alert');
+        alert.textContent = message;
+        alert.className = 'alert alert-' + type;
+        alert.style.display = 'block';
+
+        if (type === 'success') {
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 5000);
+        }
+    }
+
+    function showLoading(text) {
+        document.getElementById('loadingText').textContent = text;
+        document.getElementById('loading').classList.add('show');
+        document.getElementById('forms').style.display = 'none';
+        document.getElementById('alert').style.display = 'none';
+    }
+
+    function hideLoading() {
+        document.getElementById('loading').classList.remove('show');
+        document.getElementById('forms').style.display = 'block';
+    }
+
+    // File upload handler
+    document.getElementById('fileUploadForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const files = document.getElementById('files').files;
+        if (files.length === 0) {
+            showAlert('Please select at least one file', 'error');
+            return;
+        }
+
+        showLoading('Uploading and processing files...');
+
+        const formData = new FormData();
+        for (let file of files) {
+            formData.append('files', file);
+        }
+
+        try {
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+            hideLoading();
+
+            if (response.ok) {
+                showAlert(data.message, 'success');
+                document.getElementById('fileUploadForm').reset();
+            } else {
+                showAlert(data.error || 'Upload failed', 'error');
+            }
+        } catch (error) {
+            hideLoading();
+            showAlert('Network error. Please try again.', 'error');
+        }
+    });
+
+    // YouTube download handler
+    document.getElementById('youtubeForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const url = document.getElementById('youtubeUrl').value;
+        showLoading('Downloading and processing audio from YouTube...');
+
+        try {
+            const response = await fetch('/api/youtube', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ url })
+            });
+
+            const data = await response.json();
+            hideLoading();
+
+            if (response.ok) {
+                showAlert(data.message, 'success');
+                document.getElementById('youtubeForm').reset();
+            } else {
+                showAlert(data.error || 'Download failed', 'error');
+            }
+        } catch (error) {
+            hideLoading();
+            showAlert('Network error. Please try again.', 'error');
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Upload History - Music Upload Service{% endblock %}
+
+{% block nav %}
+<a href="/upload">Upload</a>
+<a href="/logs">History</a>
+<a href="/admin" id="adminLink" style="display: none;">Admin</a>
+<button onclick="logout()">Logout</button>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px; color: #333;">Upload History</h2>
+
+<div id="alert" class="alert" style="display: none;"></div>
+
+<div id="logsList">
+    <p style="color: #666; text-align: center;">Loading...</p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const token = localStorage.getItem('token');
+    if (!token) {
+        window.location.href = '/';
+    }
+
+    const isAdmin = localStorage.getItem('isAdmin') === 'true';
+    if (isAdmin) {
+        document.getElementById('adminLink').style.display = 'block';
+    }
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = '/';
+    }
+
+    async function loadLogs() {
+        try {
+            const response = await fetch('/api/admin/logs', {
+                headers: {
+                    'Authorization': 'Bearer ' + token
+                }
+            });
+
+            const data = await response.json();
+            const logsList = document.getElementById('logsList');
+
+            if (!data.logs || data.logs.length === 0) {
+                logsList.innerHTML = '<p style="color: #666; text-align: center;">No upload history found</p>';
+                return;
+            }
+
+            logsList.innerHTML = data.logs.map(log => {
+                const statusColor = log.status === 'completed' ? '#28a745' :
+                                   log.status === 'failed' ? '#dc3545' :
+                                   log.status === 'processing' ? '#ffc107' : '#6c757d';
+
+                const date = new Date(log.created_at).toLocaleString();
+
+                return `
+                    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                            <div>
+                                <span style="font-weight: 500; color: #333;">
+                                    ${log.upload_type === 'youtube' ? '🎵 YouTube' : '📁 File Upload'}
+                                </span>
+                                <span style="background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 3px; font-size: 12px; margin-left: 10px;">
+                                    ${log.status}
+                                </span>
+                            </div>
+                            <span style="color: #666; font-size: 14px;">${date}</span>
+                        </div>
+
+                        <div style="color: #666; font-size: 14px; margin-bottom: 5px;">
+                            <strong>Source:</strong> ${log.source}
+                        </div>
+
+                        <div style="color: #666; font-size: 14px;">
+                            <strong>Files:</strong> ${log.file_count}
+                        </div>
+
+                        ${log.error_message ? `
+                            <div style="margin-top: 10px; padding: 10px; background: #f8d7da; border-radius: 5px; color: #721c24; font-size: 14px;">
+                                <strong>Error:</strong> ${log.error_message}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        } catch (error) {
+            document.getElementById('logsList').innerHTML = '<p style="color: #dc3545; text-align: center;">Failed to load logs</p>';
+        }
+    }
+
+    loadLogs();
+</script>
+{% endblock %}

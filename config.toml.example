@@ -1,0 +1,37 @@
+# Music Upload Service Configuration
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[database]
+url = "mysql://music_upload:password@localhost:3306/music_upload"
+max_connections = 5
+
+[paths]
+# Main Navidrome music directory
+music_dir = "/srv/navidrome/music"
+# Temporary directory for uploads and processing
+temp_dir = "/srv/navidrome/music/tmp"
+# Path to the Ferric executable
+ferric_path = "/usr/local/bin/ferric"
+
+[security]
+# Secret key for JWT tokens (generate with: openssl rand -base64 32)
+jwt_secret = "your-secret-key-here-change-this"
+# Session timeout in hours
+session_timeout_hours = 24
+
+[upload]
+# Maximum file size in MB
+max_file_size_mb = 500
+# Allowed file extensions
+allowed_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "wav", "aac"]
+
+[youtube]
+# Enable YouTube download feature
+enabled = true
+# yt-dlp path (or just "yt-dlp" if in PATH)
+ytdlp_path = "yt-dlp"
+# Audio format preference
+audio_format = "best"

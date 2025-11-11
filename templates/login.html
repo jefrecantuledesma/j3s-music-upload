@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Music Upload Service{% endblock %}
+
+{% block content %}
+<div style="max-width: 400px; margin: 0 auto;">
+    <h2 style="margin-bottom: 30px; text-align: center; color: #333;">Login</h2>
+
+    <div id="alert" class="alert alert-error" style="display: none;"></div>
+
+    <form id="loginForm">
+        <div class="form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+
+        <button type="submit" class="btn" style="width: 100%;">Login</button>
+    </form>
+
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p style="margin-top: 10px;">Logging in...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const alert = document.getElementById('alert');
+        const loading = document.getElementById('loading');
+        const form = document.getElementById('loginForm');
+
+        alert.style.display = 'none';
+        loading.classList.add('show');
+        form.style.display = 'none';
+
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+
+        try {
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                // Store token and user info
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('username', data.username);
+                localStorage.setItem('isAdmin', data.is_admin);
+
+                // Redirect to upload page
+                window.location.href = '/upload';
+            } else {
+                alert.textContent = data.error || 'Login failed';
+                alert.style.display = 'block';
+                form.style.display = 'block';
+                loading.classList.remove('show');
+            }
+        } catch (error) {
+            alert.textContent = 'Network error. Please try again.';
+            alert.style.display = 'block';
+            form.style.display = 'block';
+            loading.classList.remove('show');
+        }
+    });
+</script>
+{% endblock %}
