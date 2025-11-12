@@ -2,125 +2,97 @@
 
 A web-based music upload service for Navidrome with file upload and YouTube download capabilities. Built with Rust, Axum, and MariaDB.
 
-## Features
+## ✨ Features
 
-- **User Authentication**: Secure JWT-based authentication with password hashing
+- **User Authentication**: Secure JWT-based authentication with Argon2 password hashing
+- **Default Admin User**: Automatically created on first startup (username: `admin`, password: `admin`)
+- **Password Management**: Self-service password changes and admin user management
 - **File Upload**: Upload audio files (MP3, FLAC, OGG, OPUS, M4A, WAV, AAC)
 - **YouTube Download**: Download audio from YouTube videos using yt-dlp
 - **Ferric Integration**: Automatic audio processing, conversion, and organization
-- **Admin Panel**: User management and configuration editing
+- **Admin Panel**: User management, password changes, and configuration editing
 - **Upload History**: Track all uploads with status and error logging
 - **Docker Support**: Easy deployment with Docker and docker-compose
+- **Interactive Setup**: Automated setup script for both Docker and local deployments
 
-## Quick Start
+## 🚀 Quick Start (2 Minutes!)
 
-### Prerequisites
+**For the absolute quickest setup, see [QUICKSTART.md](QUICKSTART.md)**
 
-- Docker and docker-compose
-- Ferric binary (place in `/usr/local/bin/ferric` or specify path in config)
-- Navidrome music directory at `/srv/navidrome/music`
+### Easy Installation (Recommended)
 
-### Installation
+1. **Run the interactive setup script:**
+   ```bash
+   ./scripts/setup.sh
+   ```
+   - Choose Docker or Local mode
+   - Answer the prompts (press Enter for defaults)
+   - Script auto-generates secure passwords and creates all config files
+
+2. **Start the service:**
+   ```bash
+   docker-compose up -d  # For Docker mode
+   # OR
+   cargo run --release   # For local mode
+   ```
+
+3. **Login and change the default password:**
+   - Open `http://localhost:8080`
+   - Login with username `admin` and password `admin`
+   - **Change the password immediately!**
+
+That's it! The application automatically creates a default admin user on first startup.
+
+### Manual Installation (Advanced)
+
+<details>
+<summary>Click to expand manual installation instructions</summary>
+
+#### Prerequisites
+
+- Docker and docker-compose (for Docker mode)
+- Rust (latest stable) and MariaDB (for local mode)
+- Ferric binary (optional, for audio processing)
+
+#### Steps
 
 1. Clone the repository:
-```bash
-git clone <repository-url>
-cd j3s_music_upload
-```
+   ```bash
+   git clone <repository-url>
+   cd j3s_music_upload
+   ```
 
 2. Copy the example configuration:
-```bash
-cp config.toml.example config.toml
-```
+   ```bash
+   cp config.toml.example config.toml
+   ```
 
-3. Edit `config.toml` with your settings:
-```toml
-[server]
-host = "0.0.0.0"
-port = 8080
+3. Generate a JWT secret and update `config.toml`:
+   ```bash
+   openssl rand -base64 32
+   # Paste the output into config.toml's jwt_secret field
+   ```
 
-[database]
-url = "mysql://music_upload:change_this_password@mariadb:3306/music_upload"
-max_connections = 5
-
-[paths]
-music_dir = "/srv/navidrome/music"
-temp_dir = "/srv/navidrome/music/tmp"
-ferric_path = "/usr/local/bin/ferric"
-
-[security]
-# Generate with: openssl rand -base64 32
-jwt_secret = "your-secret-key-here"
-session_timeout_hours = 24
-
-[upload]
-max_file_size_mb = 500
-allowed_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "wav", "aac"]
-
-[youtube]
-enabled = true
-ytdlp_path = "yt-dlp"
-audio_format = "best"
-```
-
-4. Update database credentials in `docker-compose.yml`:
-```yaml
-environment:
-  - MYSQL_ROOT_PASSWORD=change_this_root_password
-  - MYSQL_DATABASE=music_upload
-  - MYSQL_USER=music_upload
-  - MYSQL_PASSWORD=change_this_password
-```
+4. Update database credentials in both `config.toml` and `docker-compose.yml`
 
 5. Start the services:
-```bash
-docker-compose up -d
-```
+   ```bash
+   docker-compose up -d
+   ```
 
-6. Create the first admin user (after the database is initialized):
-```bash
-docker exec -it music_upload_service /app/j3s_music_upload create-admin
-```
+6. Access the web interface at `http://localhost:8080`
+   - Login with default credentials: `admin` / `admin`
+   - **Change the password immediately!**
 
-Or manually using SQL:
-```bash
-docker exec -it music_upload_db mysql -u music_upload -p music_upload
-```
+</details>
 
-Then run:
-```sql
--- Generate a password hash using argon2
--- You can use an online tool or create a user via the admin panel once you have one admin
-INSERT INTO users (id, username, password_hash, is_admin)
-VALUES (UUID(), 'admin', '$argon2id$...', true);
-```
+### Default Admin User
 
-### Creating the First Admin User
+On first startup, if no users exist in the database, the application automatically creates:
+- **Username:** `admin`
+- **Password:** `admin`
 
-To bootstrap the first admin user, you can use a simple SQL script after the database is initialized:
-
-```bash
-# Connect to the database
-docker exec -it music_upload_db mysql -u music_upload -p music_upload
-
-# Insert admin user (you'll need to hash the password first)
-# For development, you can temporarily modify the code to print a hash
-# or use an online argon2 hash generator
-```
-
-For easier setup, here's a Rust snippet to generate a password hash:
-
-```rust
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-    Argon2,
-};
-
-let password = "your_admin_password";
-let salt = SaltString::generate(&mut OsRng);
-let hash = Argon2::default().hash_password(password.as_bytes(), &salt).unwrap();
-println!("Password hash: {}", hash);
-```
+**🔐 CRITICAL: Change this password immediately after first login!**
 
 ## Usage
 
@@ -156,12 +128,17 @@ println!("Password hash: {}", hash);
 #### Public
 - `POST /api/login` - User authentication
 
-#### Protected
+#### Protected (Require JWT)
 - `POST /api/upload` - Upload audio files
 - `POST /api/youtube` - Download from YouTube
-- `GET /api/admin/users` - List users
-- `POST /api/admin/users` - Create user
+- `POST /api/user/change-password` - Change own password
+- `POST /api/logout` - Logout (client-side token removal)
+
+#### Admin Only
+- `GET /api/admin/users` - List all users
+- `POST /api/admin/users` - Create new user
 - `DELETE /api/admin/users/:id` - Delete user
+- `POST /api/admin/users/:id/password` - Change any user's password
 - `GET /api/admin/config` - List config
 - `POST /api/admin/config` - Update config
 - `GET /api/admin/logs` - Get upload logs

@@ -1,5 +1,5 @@
 use crate::auth::AuthUser;
-use crate::models::{CreateUser, User};
+use crate::models::{AdminChangePasswordRequest, ChangePasswordRequest, CreateUser, User};
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
@@ -190,6 +190,105 @@ pub async fn get_upload_logs(
 
     Ok(Json(json!({
         "logs": logs
+    })))
+}
+
+// Password change endpoints
+pub async fn change_own_password(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<ChangePasswordRequest>,
+) -> Result<Json<serde_json::Value>, Response> {
+    // Validate new password
+    if req.new_password.len() < 8 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "New password must be at least 8 characters"
+            })),
+        )
+            .into_response());
+    }
+
+    // Verify old password
+    let db_user = state
+        .db
+        .verify_password(&user.username, &req.old_password)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": "Current password is incorrect"
+                })),
+            )
+                .into_response()
+        })?;
+
+    // Update password
+    state
+        .db
+        .update_password(&db_user.id, &req.new_password)
+        .await
+        .map_err(|e| internal_error(&format!("Failed to update password: {}", e)))?;
+
+    Ok(Json(json!({
+        "message": "Password changed successfully"
+    })))
+}
+
+pub async fn admin_change_user_password(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(admin): Extension<AuthUser>,
+    Path(user_id): Path<String>,
+    Json(req): Json<AdminChangePasswordRequest>,
+) -> Result<Json<serde_json::Value>, Response> {
+    // Ensure requester is admin
+    if !admin.is_admin {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Admin privileges required"
+            })),
+        )
+            .into_response());
+    }
+
+    // Validate new password
+    if req.new_password.len() < 8 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "New password must be at least 8 characters"
+            })),
+        )
+            .into_response());
+    }
+
+    // Verify user exists
+    state
+        .db
+        .get_user_by_id(&user_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({
+                    "error": "User not found"
+                })),
+            )
+                .into_response()
+        })?;
+
+    // Update password
+    state
+        .db
+        .update_password(&user_id, &req.new_password)
+        .await
+        .map_err(|e| internal_error(&format!("Failed to update password: {}", e)))?;
+
+    Ok(Json(json!({
+        "message": "User password changed successfully"
     })))
 }
 

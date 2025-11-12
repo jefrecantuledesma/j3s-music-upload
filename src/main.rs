@@ -9,7 +9,8 @@ use crate::auth::{auth_middleware, AuthState};
 use crate::config::Config;
 use crate::db::Database;
 use crate::handlers::admin::{
-    create_user, delete_user, get_config, get_upload_logs, list_config, list_users, update_config,
+    admin_change_user_password, change_own_password, create_user, delete_user, get_config,
+    get_upload_logs, list_config, list_users, update_config,
 };
 use crate::handlers::auth_handlers::{login, logout};
 use crate::handlers::upload::upload_files;
@@ -51,6 +52,22 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Connecting to database...");
     let db = Database::new(&config.database.url, config.database.max_connections).await?;
 
+    // Check if this is first run and create default admin if needed
+    if !db.user_exists().await? {
+        tracing::warn!("No users found in database. Creating default admin user...");
+        tracing::warn!("DEFAULT CREDENTIALS - Username: admin, Password: admin");
+        tracing::warn!("PLEASE CHANGE THE DEFAULT PASSWORD IMMEDIATELY!");
+
+        use crate::models::CreateUser;
+        db.create_user(CreateUser {
+            username: "admin".to_string(),
+            password: "admin".to_string(),
+            is_admin: true,
+        }).await?;
+
+        tracing::info!("Default admin user created successfully");
+    }
+
     // Create auth state
     let auth_state = AuthState::new(
         config.security.jwt_secret.clone(),
@@ -70,6 +87,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/youtube", post(download_youtube))
         .route("/api/admin/users", get(list_users).post(create_user))
         .route("/api/admin/users/:id", delete(delete_user))
+        .route(
+            "/api/admin/users/:id/password",
+            post(admin_change_user_password),
+        )
+        .route("/api/user/change-password", post(change_own_password))
         .route(
             "/api/admin/config",
             get(list_config).post(update_config),

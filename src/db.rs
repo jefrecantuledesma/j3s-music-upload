@@ -119,6 +119,32 @@ impl Database {
         Ok(user)
     }
 
+    pub async fn update_password(&self, user_id: &str, new_password: &str) -> Result<()> {
+        let password_hash = hash_password(new_password)?;
+
+        sqlx::query(
+            r#"
+            UPDATE users SET password_hash = ? WHERE id = ?
+            "#,
+        )
+        .bind(&password_hash)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update password")?;
+
+        Ok(())
+    }
+
+    pub async fn user_exists(&self) -> Result<bool> {
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+            .fetch_one(&self.pool)
+            .await
+            .context("Failed to check if users exist")?;
+
+        Ok(count.0 > 0)
+    }
+
     // Upload log operations
     pub async fn create_upload_log(&self, log: CreateUploadLog) -> Result<i32> {
         let result = sqlx::query(

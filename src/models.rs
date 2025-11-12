@@ -73,3 +73,15 @@ pub struct Claims {
     pub is_admin: bool,
     pub exp: i64,
 }
+
+// Password change requests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub old_password: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminChangePasswordRequest {
+    pub new_password: String,
+}
