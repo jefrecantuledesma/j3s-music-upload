@@ -4,17 +4,22 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use sqlx::{MySqlPool, Row};
+use sqlx::{SqlitePool, Row, sqlite::SqliteConnectOptions};
+use std::str::FromStr;
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct Database {
-    pool: MySqlPool,
+    pool: SqlitePool,
 }
 
 impl Database {
     pub async fn new(database_url: &str, _max_connections: u32) -> Result<Self> {
-        let pool = MySqlPool::connect(database_url)
+        // Parse the database URL and set create_if_missing
+        let options = SqliteConnectOptions::from_str(database_url)?
+            .create_if_missing(true);
+
+        let pool = SqlitePool::connect_with(options)
             .await
             .context("Failed to connect to database")?;
 
@@ -27,7 +32,7 @@ impl Database {
         Ok(Self { pool })
     }
 
-    pub fn pool(&self) -> &MySqlPool {
+    pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
 
@@ -160,7 +165,7 @@ impl Database {
         .await
         .context("Failed to create upload log")?;
 
-        Ok(result.last_insert_id() as i32)
+        Ok(result.last_insert_rowid() as i32)
     }
 
     pub async fn update_upload_log_status(
@@ -184,7 +189,7 @@ impl Database {
         }
 
         if status == "completed" || status == "failed" {
-            query.push_str(", completed_at = NOW()");
+            query.push_str(", completed_at = CURRENT_TIMESTAMP");
         }
 
         query.push_str(" WHERE id = ?");
@@ -238,7 +243,7 @@ impl Database {
     pub async fn get_config(&self, key: &str) -> Result<Option<String>> {
         let result = sqlx::query(
             r#"
-            SELECT value FROM config WHERE `key` = ?
+            SELECT value FROM config WHERE key = ?
             "#,
         )
         .bind(key)
@@ -252,9 +257,9 @@ impl Database {
     pub async fn set_config(&self, key: &str, value: &str) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO config (`key`, value)
+            INSERT INTO config (key, value)
             VALUES (?, ?)
-            ON DUPLICATE KEY UPDATE value = VALUES(value)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
             "#,
         )
         .bind(key)
@@ -269,7 +274,7 @@ impl Database {
     pub async fn list_config(&self) -> Result<Vec<(String, String)>> {
         let rows = sqlx::query(
             r#"
-            SELECT `key`, value FROM config ORDER BY `key`
+            SELECT key, value FROM config ORDER BY key
             "#,
         )
         .fetch_all(&self.pool)

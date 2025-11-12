@@ -4,92 +4,88 @@ Get J3S Music Upload Service running in under 5 minutes!
 
 ## 🚀 Super Quick Setup (Recommended)
 
-### Option 1: Docker Setup (Easiest - 2 Minutes!)
+### Option 1: Automated Setup Script (Easiest!)
 
-1. **Run the interactive setup script:**
+1. **Run the setup script:**
    ```bash
+   chmod +x scripts/setup.sh
    ./scripts/setup.sh
    ```
-   - Choose option `1` for Docker
-   - Answer the prompts (or press Enter to use defaults)
-   - The script will auto-generate secure passwords and create all config files
 
-2. **Start the services:**
+   The script will:
+   - Create `config.toml` with auto-generated JWT secret
+   - Set up SQLite database (no server needed!)
+   - Build the application
+   - Create an admin user with your chosen password
+
+2. **Start the service:**
    ```bash
-   docker-compose up -d
+   ./target/release/j3s_music_upload
+   ```
+
+   Or use cargo:
+   ```bash
+   cargo run --release
    ```
 
 3. **Access the web interface:**
    - Open your browser to `http://localhost:8080`
-   - Login with default credentials:
-     - **Username:** `admin`
-     - **Password:** `admin`
+   - Login with the admin credentials you created
 
-4. **🔐 IMPORTANT: Change the default password immediately!**
-   - The application creates a default admin user on first startup
-   - Change your password using the API or web interface
-
-That's it! You're ready to upload music.
+That's it! No database server, no complex setup. Just run the script and go!
 
 ---
 
-### Option 2: Local Development Setup
+### Option 2: Docker Setup (Production Ready)
 
-1. **Prerequisites:**
-   - Rust (latest stable)
-   - MariaDB/MySQL running locally
-   - Ferric (optional, for audio processing)
-
-2. **Run the interactive setup script:**
+1. **Create shared network for Caddy (if using reverse proxy):**
    ```bash
-   ./scripts/setup.sh
-   ```
-   - Choose option `2` for Local development
-   - Enter your database credentials
-   - The script will create your config file
-
-3. **Create the database (if needed):**
-   ```bash
-   # The setup script will show you the SQL commands
-   mysql -u root -p
-   ```
-   ```sql
-   CREATE DATABASE music_upload;
-   CREATE USER 'music_upload'@'localhost' IDENTIFIED BY 'your_password';
-   GRANT ALL PRIVILEGES ON music_upload.* TO 'music_upload'@'localhost';
-   FLUSH PRIVILEGES;
+   docker network create shared_web
    ```
 
-4. **Build and run:**
+2. **Copy and configure:**
    ```bash
-   cargo build --release
-   cargo run --release
+   cp config.toml.example config.toml
+   # Edit config.toml with your settings
+   ```
+
+3. **Start the service:**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Check logs:**
+   ```bash
+   docker-compose logs -f music-upload
    ```
 
 5. **Access the web interface:**
-   - Open your browser to `http://localhost:8080`
-   - Login with default credentials:
-     - **Username:** `admin`
-     - **Password:** `admin`
-
-6. **🔐 IMPORTANT: Change the default password immediately!**
+   - Direct: `http://localhost:8080`
+   - Via Caddy: `https://music-upload.yourdomain.com`
+   - Login with **admin/admin** (change immediately!)
 
 ---
 
 ## 🔐 First Login & Security
 
 ### Default Credentials
+On first startup, if no users exist, the application creates:
 - **Username:** `admin`
 - **Password:** `admin`
 
-The application automatically creates this default admin user on first startup if no users exist.
+**🔒 IMPORTANT: Change this immediately after first login!**
 
 ### Change Password (API)
 
-**For yourself:**
 ```bash
+# First, login to get your JWT token
+TOKEN=$(curl -X POST http://localhost:8080/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}' | jq -r '.token')
+
+# Change your password
 curl -X POST http://localhost:8080/api/user/change-password \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "old_password": "admin",
@@ -97,86 +93,24 @@ curl -X POST http://localhost:8080/api/user/change-password \
   }'
 ```
 
-**As admin (change another user's password):**
-```bash
-curl -X POST http://localhost:8080/api/admin/users/USER_ID/password \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "new_password": "new_secure_password"
-  }'
-```
-
----
-
-## 👥 User Management
-
-### Create a New User (API)
-
-```bash
-curl -X POST http://localhost:8080/api/admin/users \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "newuser",
-    "password": "secure_password",
-    "is_admin": false
-  }'
-```
-
-### List Users
-
-```bash
-curl -X GET http://localhost:8080/api/admin/users \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-### Delete User
-
-```bash
-curl -X DELETE http://localhost:8080/api/admin/users/USER_ID \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
 ---
 
 ## 📤 Uploading Music
 
 ### File Upload
-
-1. Navigate to the Upload page
+1. Navigate to the upload page
 2. Select audio files (MP3, FLAC, OGG, OPUS, M4A, WAV, AAC)
 3. Click Upload
-4. Ferric will process and organize the files automatically
+4. Ferric will process and organize files automatically
 
 ### YouTube Download
-
-1. Navigate to the Upload page
+1. Navigate to the upload page
 2. Enter a YouTube URL
-3. The service will download the audio and process it
+3. Service downloads audio and processes it with Ferric
 
 ---
 
 ## 🛠️ Useful Commands
-
-### Docker
-
-```bash
-# View logs
-docker-compose logs -f music-upload
-
-# Restart services
-docker-compose restart
-
-# Stop services
-docker-compose down
-
-# Rebuild and restart
-docker-compose build && docker-compose up -d
-
-# Access database
-docker exec -it music_upload_db mysql -u music_upload -p music_upload
-```
 
 ### Local Development
 
@@ -187,153 +121,179 @@ cargo build --release
 # Run with debug logging
 RUST_LOG=debug cargo run
 
-# Run migrations manually
-sqlx migrate run
+# Run setup script
+./scripts/setup.sh
 
-# Create migration
-sqlx migrate add migration_name
+# Check database
+sqlite3 data/music_upload.db ".tables"
+sqlite3 data/music_upload.db "SELECT * FROM users;"
+```
+
+### Docker
+
+```bash
+# View logs
+docker-compose logs -f music-upload
+
+# Restart service
+docker-compose restart
+
+# Stop service
+docker-compose down
+
+# Rebuild and restart
+docker-compose build && docker-compose up -d
+
+# Check database
+docker exec -it music_upload_service sqlite3 /app/data/music_upload.db ".tables"
 ```
 
 ---
 
-## 📋 Checklist
-
-**Docker Setup:**
-- [ ] Ran `./scripts/setup.sh` and chose Docker mode
-- [ ] Started services with `docker-compose up -d`
-- [ ] Accessed web interface at http://localhost:8080
-- [ ] Logged in with admin/admin
-- [ ] Changed default password
-- [ ] Created additional users (optional)
-
-**Local Setup:**
-- [ ] Ran `./scripts/setup.sh` and chose Local mode
-- [ ] Created database with provided SQL commands
-- [ ] Built project with `cargo build --release`
-- [ ] Started service with `cargo run --release`
-- [ ] Accessed web interface at http://localhost:8080
-- [ ] Logged in with admin/admin
-- [ ] Changed default password
-
 ## 🔧 Troubleshooting
 
 ### "Failed to connect to database"
-- **Docker:** Ensure MariaDB is running with `docker-compose ps`
-- **Local:** Check if MariaDB is running with `systemctl status mariadb`
-- Verify credentials in `config.toml` match your database
-- For Docker: ensure the service is healthy (wait 30 seconds after first start)
+- **SQLite:** Ensure the `data/` directory exists and is writable
+- **Permissions:** Check that the application can write to the data directory
+- The database file will be created automatically on first run
 
 ### "Ferric command not found"
 - Install Ferric from the ferric repository
 - Update `ferric_path` in `config.toml` to the correct location
-- Or temporarily disable Ferric processing for testing
+- Ferric is optional - uploads will work without it (no processing)
 
 ### "Permission denied" on directories
-- Ensure the music and temp directories are writable
+- Ensure music and temp directories are writable
+- The app will try to create directories automatically
 - For Docker: check volume mounts in `docker-compose.yml`
-- The app will auto-create directories if they don't exist
 
 ### Upload fails
 - Check file size limits in `config.toml` (default 500MB)
 - Ensure file extension is in `allowed_extensions` list
 - Check disk space in music and temp directories
-- Review logs: `docker-compose logs music-upload` or check console output
-
-### "YouTube download doesn't work"
-- Verify yt-dlp is installed: `yt-dlp --version`
-- Check if YouTube URL is valid
 - Review logs for specific errors
-- Ensure `youtube.enabled = true` in config.toml
+
+### Docker: GLIBC version errors
+- Make sure you rebuild after pulling latest changes
+- The Dockerfile now uses matching Debian versions
+
+### Caddy reverse proxy not working
+- Ensure shared_web network exists: `docker network create shared_web`
+- Check that docker-compose.yml includes the shared_web network
+- Verify Caddy can reach the container: `docker network inspect shared_web`
+
+---
+
+## 📋 Setup Checklist
+
+**Automated Setup:**
+- [ ] Ran `./scripts/setup.sh`
+- [ ] Created admin user with secure password
+- [ ] Started service with `cargo run --release` or `./target/release/j3s_music_upload`
+- [ ] Accessed web interface at http://localhost:8080
+- [ ] Logged in successfully
+- [ ] Uploaded test file (optional)
+
+**Docker Setup:**
+- [ ] Created shared_web network (if using Caddy)
+- [ ] Copied and configured config.toml
+- [ ] Started services with `docker-compose up -d`
+- [ ] Checked logs with `docker-compose logs`
+- [ ] Accessed web interface
+- [ ] Changed default admin password
+- [ ] Updated Caddyfile (if using reverse proxy)
+
+---
+
+## 🎯 What Makes This Simple?
+
+### No Database Server Required!
+- Uses SQLite - single file database
+- No MySQL/MariaDB/PostgreSQL to install
+- No database users or permissions to configure
+- Automatic migrations on startup
+- Just run and go!
+
+### Automatic Setup
+- Auto-generates JWT secrets
+- Creates admin user on first run
+- Initializes database automatically
+- Creates necessary directories
+
+### Easy Configuration
+- Single `config.toml` file
+- Sensible defaults
+- Clear examples provided
+
+---
 
 ## 📁 Directory Structure
 
 ```
 j3s_music_upload/
-├── src/                    # Rust source code
-│   ├── handlers/          # API endpoint handlers
-│   ├── main.rs            # Application entry point
-│   ├── db.rs              # Database layer
-│   ├── auth.rs            # Authentication
-│   └── ...
-├── migrations/            # Database migrations (auto-run on startup)
-├── templates/             # Askama HTML templates
-├── scripts/               # Utility scripts
-│   └── setup.sh          # Interactive setup script
-├── config.toml            # Configuration (created by setup script)
-├── docker-compose.yml     # Docker services (created by setup script)
-├── Dockerfile             # Docker build definition
-└── Cargo.toml            # Rust dependencies
+├── data/
+│   └── music_upload.db        # SQLite database (auto-created)
+├── config.toml                # Your configuration
+├── src/                       # Rust source code
+├── migrations/                # Database migrations (auto-applied)
+├── templates/                 # HTML templates
+├── scripts/
+│   └── setup.sh              # Setup wizard
+└── target/release/
+    └── j3s_music_upload      # Compiled binary
 ```
 
 ---
 
-## 🔗 API Endpoints Reference
+## 🔗 API Endpoints
 
 ### Authentication
 - `POST /api/login` - Login and get JWT token
-- `POST /api/logout` - Logout (client-side token removal)
+- `POST /api/logout` - Logout
 
-### User Management
-- `GET /api/admin/users` - List all users (admin)
-- `POST /api/admin/users` - Create new user (admin)
-- `DELETE /api/admin/users/:id` - Delete user (admin)
-- `POST /api/admin/users/:id/password` - Change user password (admin)
-- `POST /api/user/change-password` - Change own password
+### User Management (Admin Only)
+- `GET /api/admin/users` - List all users
+- `POST /api/admin/users` - Create new user
+- `DELETE /api/admin/users/:id` - Delete user
+- `POST /api/admin/users/:id/password` - Change user password
 
 ### Upload
 - `POST /api/upload` - Upload audio files
 - `POST /api/youtube` - Download from YouTube URL
 
-### Logs & Config
+### Logs & Config (Admin Only)
 - `GET /api/admin/logs` - View upload logs
 - `GET /api/admin/config` - List config values
 - `POST /api/admin/config` - Update config value
-- `GET /api/admin/config/:key` - Get specific config value
-
----
-
-## 🎯 What's Next?
-
-1. **Change Default Password** - This is critical for security!
-2. **Add More Users** - Create accounts for other users
-3. **Upload Music** - Try uploading a test file
-4. **Configure Ferric** - Ensure Ferric is installed for audio processing
-5. **Set Up SSL** - Configure reverse proxy with Let's Encrypt (for production)
-6. **Backup** - Set up automated database backups
-
----
-
-## 📚 More Information
-
-- **This Guide**: Quick start and basic usage
-- **SETUP.md**: Detailed configuration options
-- **README.md**: Architecture and development details
-- **CLAUDE.md**: Development guidelines for working with Claude Code
-- **PROJECT_SUMMARY.md**: Project overview and technical details
-
----
-
-## 🆘 Getting Help
-
-1. Check the logs: `docker-compose logs music-upload` (Docker) or console output (local)
-2. Verify configuration: review `config.toml`
-3. Test database connection: `docker exec music_upload_db mysql -u music_upload -p`
-4. Review documentation in this repository
-5. Check the troubleshooting section above
 
 ---
 
 ## 🎉 Success!
 
-Once you're logged in and have changed the default password:
+Once you're logged in:
 - Upload audio files via the web interface
 - Download from YouTube URLs
-- Ferric will automatically process and organize your music
+- Ferric automatically processes and organizes music
 - Files appear in your Navidrome music library
 
 **Enjoy your music upload service!**
 
-### Default Admin Credentials (First Login Only)
-- Username: `admin`
-- Password: `admin`
-- **🔐 CHANGE THIS IMMEDIATELY AFTER FIRST LOGIN!**
+---
+
+## 📚 More Information
+
+- **QUICKSTART.md** (this file): Get started quickly
+- **SETUP.md**: Detailed configuration options
+- **README.md**: Architecture and development details
+- **CLAUDE.md**: Development guidelines
+- **PROJECT_SUMMARY.md**: Project overview
+
+---
+
+## 🆘 Getting Help
+
+1. Check the logs (console output or `docker-compose logs`)
+2. Verify configuration in `config.toml`
+3. Check database: `sqlite3 data/music_upload.db ".tables"`
+4. Review troubleshooting section above
+5. Check file permissions on data/ and music directories

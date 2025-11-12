@@ -154,7 +154,7 @@ impl Default for Config {
                 port: 8080,
             },
             database: DatabaseConfig {
-                url: "mysql://music_upload:password@localhost:3306/music_upload".to_string(),
+                url: "sqlite:./data/music_upload.db".to_string(),
                 max_connections: 5,
             },
             paths: PathsConfig {

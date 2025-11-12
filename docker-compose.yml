@@ -14,39 +14,15 @@ services:
       - /srv/navidrome/music/tmp:/srv/navidrome/music/tmp
       # Mount configuration
       - ./config.toml:/app/config.toml:ro
-      # Mount data directory for persistent data
+      # Mount data directory for SQLite database
       - ./data:/app/data
     environment:
       - RUST_LOG=info
       - CONFIG_PATH=/app/config.toml
-    depends_on:
-      - mariadb
     networks:
-      - music-upload-network
-
-  mariadb:
-    image: mariadb:11
-    container_name: music_upload_db
-    restart: unless-stopped
-    environment:
-      - MYSQL_ROOT_PASSWORD=change_this_root_password
-      - MYSQL_DATABASE=music_upload
-      - MYSQL_USER=music_upload
-      - MYSQL_PASSWORD=change_this_password
-    volumes:
-      - mariadb_data:/var/lib/mysql
-    networks:
-      - music-upload-network
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  mariadb_data:
-    driver: local
+      - shared_web
 
 networks:
-  music-upload-network:
-    driver: bridge
+  shared_web:
+    external: true
+    name: shared_web

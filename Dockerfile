@@ -1,5 +1,5 @@
-# Build stage
-FROM rust:latest as builder
+# Build stage - use specific Debian version to match runtime
+FROM rust:1.82-bookworm as builder
 
 WORKDIR /app
 
@@ -37,7 +37,7 @@ COPY --from=builder /app/templates /app/templates
 COPY --from=builder /app/migrations /app/migrations
 
 # Create necessary directories
-RUN mkdir -p /app/data /srv/navidrome/music /srv/navidrome/music/tmp
+RUN mkdir -p /app/data /app/templates /app/migrations /srv/navidrome/music /srv/navidrome/music/tmp
 
 # Change ownership
 RUN chown -R app:app /app /srv/navidrome
