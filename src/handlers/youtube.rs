@@ -27,12 +27,25 @@ pub async fn download_youtube(
             .into_response());
     }
 
-    // Validate URL
-    if !req.url.contains("youtube.com") && !req.url.contains("youtu.be") {
+    // SECURITY: Strict URL validation to prevent command injection
+    // Only allow HTTPS YouTube URLs with specific patterns
+    let url = req.url.trim();
+    let is_valid = (url.starts_with("https://www.youtube.com/watch?v=")
+        || url.starts_with("https://youtube.com/watch?v=")
+        || url.starts_with("https://youtu.be/")
+        || url.starts_with("https://m.youtube.com/watch?v="))
+        && !url.contains(';')
+        && !url.contains('|')
+        && !url.contains('`')
+        && !url.contains('$')
+        && !url.contains("&&")
+        && !url.contains("||");
+
+    if !is_valid || url.len() > 200 {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": "Invalid YouTube URL"
+                "error": "Invalid YouTube URL format. Must be a standard HTTPS YouTube watch URL."
             })),
         )
             .into_response());
@@ -72,7 +85,10 @@ pub async fn download_youtube(
 
                     Ok(Json(UploadResponse {
                         success: true,
-                        message: format!("Successfully downloaded and processed {} file(s)", file_count),
+                        message: format!(
+                            "Successfully downloaded and processed {} file(s)",
+                            file_count
+                        ),
                         log_id: Some(log_id),
                     }))
                 }
@@ -80,7 +96,12 @@ pub async fn download_youtube(
                     let error_msg = format!("Processing failed: {}", e);
                     state
                         .db
-                        .update_upload_log_status(log_id, "failed", Some(file_count), Some(error_msg.clone()))
+                        .update_upload_log_status(
+                            log_id,
+                            "failed",
+                            Some(file_count),
+                            Some(error_msg.clone()),
+                        )
                         .await
                         .ok();
 
@@ -110,14 +131,10 @@ pub async fn download_youtube(
 }
 
 async fn download_with_ytdlp(config: &Config, url: &str) -> anyhow::Result<i32> {
+    let args = build_ytdlp_args(config, url);
+
     let output = tokio::process::Command::new(&config.youtube.ytdlp_path)
-        .args([
-            "--extract-audio",
-            "--audio-format", &config.youtube.audio_format,
-            "--output", &format!("{}/%(title)s.%(ext)s", config.paths.temp_dir.display()),
-            "--no-playlist",
-            url,
-        ])
+        .args(&args)
         .output()
         .await?;
 
@@ -136,6 +153,41 @@ async fn download_with_ytdlp(config: &Config, url: &str) -> anyhow::Result<i32> 
     }
 
     Ok(count)
+}
+
+fn build_ytdlp_args(config: &Config, url: &str) -> Vec<String> {
+    let mut args = vec![
+        "--no-warnings".to_string(),
+        "--extract-audio".to_string(),
+        "--audio-format".to_string(),
+        config.youtube.audio_format.clone(),
+        "--output".to_string(),
+        format!("{}/%(title)s.%(ext)s", config.paths.temp_dir.display()),
+        "--no-playlist".to_string(),
+        "--ignore-no-formats-error".to_string(),
+    ];
+
+    let format_selector = config.youtube.format_selector.trim();
+    if !format_selector.is_empty() {
+        args.push("--format".to_string());
+        args.push(format_selector.to_string());
+    }
+
+    if let Some(client) = config.youtube.player_client.as_deref() {
+        let trimmed = client.trim();
+        if !trimmed.is_empty() {
+            // Force yt-dlp to use a stable player client (web avoids "Precondition check failed").
+            args.push("--extractor-args".to_string());
+            args.push(format!("youtube:player_client={}", trimmed));
+        }
+    }
+
+    if !config.youtube.extra_args.is_empty() {
+        args.extend(config.youtube.extra_args.iter().cloned());
+    }
+
+    args.push(url.to_string());
+    args
 }
 
 async fn process_temp_dir(config: &Config) -> anyhow::Result<()> {
@@ -172,4 +224,36 @@ fn internal_error(message: &str) -> Response {
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_args_include_default_player_client() {
+        let config = Config::default();
+        let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        let args = build_ytdlp_args(&config, url);
+
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "--extractor-args" && pair[1] == "youtube:player_client=web"),
+            "expected --extractor-args youtube:player_client=web in {:?}",
+            args
+        );
+        assert_eq!(args.last().unwrap(), url);
+    }
+
+    #[test]
+    fn build_args_append_extra_args() {
+        let mut config = Config::default();
+        config.youtube.extra_args = vec!["--throttled-rate=100K".to_string()];
+        let url = "https://youtu.be/example";
+
+        let args = build_ytdlp_args(&config, url);
+
+        assert!(args.contains(&"--throttled-rate=100K".to_string()));
+        assert_eq!(args.last().unwrap(), url);
+    }
 }

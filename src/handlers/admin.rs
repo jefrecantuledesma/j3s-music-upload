@@ -266,19 +266,15 @@ pub async fn admin_change_user_password(
     }
 
     // Verify user exists
-    state
-        .db
-        .get_user_by_id(&user_id)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({
-                    "error": "User not found"
-                })),
-            )
-                .into_response()
-        })?;
+    state.db.get_user_by_id(&user_id).await.map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": "User not found"
+            })),
+        )
+            .into_response()
+    })?;
 
     // Update password
     state

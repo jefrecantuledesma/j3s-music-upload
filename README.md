@@ -204,6 +204,7 @@ sqlx migrate run
 - Ensure yt-dlp is installed in container
 - Check YouTube URL format
 - Verify network access from container
+- Keep `youtube.player_client = "web"` (or a working client) in `config.toml` to bypass recent YouTube "Precondition check failed" responses
 
 ## License
 

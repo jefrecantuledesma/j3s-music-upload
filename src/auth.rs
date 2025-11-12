@@ -92,7 +92,9 @@ pub async fn auth_middleware(
 
     match auth_state.verify_token(token) {
         Ok(claims) => {
-            request.extensions_mut().insert(AuthUser::from_claims(claims));
+            request
+                .extensions_mut()
+                .insert(AuthUser::from_claims(claims));
             Ok(next.run(request).await)
         }
         Err(_) => Err(StatusCode::UNAUTHORIZED),

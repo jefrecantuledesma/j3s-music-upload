@@ -22,7 +22,11 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    trace::TraceLayer,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 // Shared application state
@@ -63,7 +67,8 @@ async fn main() -> anyhow::Result<()> {
             username: "admin".to_string(),
             password: "admin".to_string(),
             is_admin: true,
-        }).await?;
+        })
+        .await?;
 
         tracing::info!("Default admin user created successfully");
     }
@@ -83,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Protected routes (require authentication)
     let protected_routes = Router::new()
+        // API routes
         .route("/api/upload", post(upload_files))
         .route("/api/youtube", post(download_youtube))
         .route("/api/admin/users", get(list_users).post(create_user))
@@ -92,34 +98,48 @@ async fn main() -> anyhow::Result<()> {
             post(admin_change_user_password),
         )
         .route("/api/user/change-password", post(change_own_password))
-        .route(
-            "/api/admin/config",
-            get(list_config).post(update_config),
-        )
+        .route("/api/admin/config", get(list_config).post(update_config))
         .route("/api/admin/config/:key", get(get_config))
         .route("/api/admin/logs", get(get_upload_logs))
         .route("/api/logout", post(logout))
-        .layer(middleware::from_fn_with_state(
-            auth_state,
-            auth_middleware,
-        ));
-
-    // Public routes
-    let public_routes = Router::new()
-        .route("/", get(|| async { LoginTemplate }))
+        // Template routes (PROTECTED - require login)
         .route("/upload", get(|| async { UploadTemplate }))
         .route("/admin", get(|| async { AdminTemplate }))
         .route("/logs", get(|| async { LogsTemplate }))
+        .layer(middleware::from_fn_with_state(auth_state, auth_middleware));
+
+    // Public routes (only login page and API endpoint)
+    let public_routes = Router::new()
+        .route("/", get(|| async { LoginTemplate }))
         .route("/api/login", post(login));
 
     // Start server address
-    let addr = format!("{}:{}", app_state.config.server.host, app_state.config.server.port);
+    let addr = format!(
+        "{}:{}",
+        app_state.config.server.host, app_state.config.server.port
+    );
+
+    // Configure CORS - only allow same-origin by default (restrictive for security)
+    // If you need to allow different origins, configure this appropriately
+    let cors = CorsLayer::new()
+        .allow_origin(Any) // In production, specify your domain(s)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::DELETE,
+        ])
+        .allow_headers(Any);
+
+    // Max request body size from config
+    let max_body_size = app_state.config.max_file_size_bytes();
 
     // Combine routes
     let app = Router::new()
         .merge(protected_routes)
         .merge(public_routes)
         .with_state(app_state)
+        .layer(cors)
+        .layer(RequestBodyLimitLayer::new(max_body_size))
         .layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 

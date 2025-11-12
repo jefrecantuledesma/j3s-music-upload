@@ -5,8 +5,9 @@ services:
     build: .
     container_name: music_upload_service
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    # IMPORTANT: No ports exposed by default for security
+    # Only accessible via reverse proxy (Caddy/Nginx)
+    # To expose directly, uncomment: ports: - "8080:8080"
     volumes:
       # Mount Navidrome music directory
       - /srv/navidrome/music:/srv/navidrome/music
@@ -20,9 +21,12 @@ services:
       - RUST_LOG=info
       - CONFIG_PATH=/app/config.toml
     networks:
-      - shared_web
+      - web
 
 networks:
-  shared_web:
+  web:
     external: true
-    name: shared_web
+    # IMPORTANT: Change 'web' to match your reverse proxy's network
+    # Examples: caddy_default, nginx-proxy, traefik_default, media_stack_internal
+    # To find your network: docker network ls
+    # To create if needed: docker network create web

@@ -50,24 +50,61 @@ pub async fn upload_files(
             None => continue,
         };
 
+        // SECURITY: Sanitize filename to prevent path traversal attacks
+        // Remove any path components and only keep the filename
+        let sanitized_name = Path::new(&file_name)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| internal_error("Invalid filename"))?
+            .to_string();
+
+        // Additional check: reject files with suspicious characters
+        if sanitized_name.contains("..")
+            || sanitized_name.contains('/')
+            || sanitized_name.contains('\\')
+        {
+            let error_msg = "Invalid filename: path traversal attempt detected";
+            state
+                .db
+                .update_upload_log_status(
+                    log_id,
+                    "failed",
+                    Some(file_count),
+                    Some(error_msg.to_string()),
+                )
+                .await
+                .ok();
+            return Err(
+                (StatusCode::BAD_REQUEST, Json(json!({ "error": error_msg }))).into_response(),
+            );
+        }
+
         // Check file extension
-        let extension = Path::new(&file_name)
+        let extension = Path::new(&sanitized_name)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
 
-        if !state.config.upload.allowed_extensions.contains(&extension.to_string()) {
+        if !state
+            .config
+            .upload
+            .allowed_extensions
+            .contains(&extension.to_string())
+        {
             let error_msg = format!("File type .{} not allowed", extension);
             state
                 .db
-                .update_upload_log_status(log_id, "failed", Some(file_count), Some(error_msg.clone()))
+                .update_upload_log_status(
+                    log_id,
+                    "failed",
+                    Some(file_count),
+                    Some(error_msg.clone()),
+                )
                 .await
                 .ok();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": error_msg })),
-            )
-                .into_response());
+            return Err(
+                (StatusCode::BAD_REQUEST, Json(json!({ "error": error_msg }))).into_response(),
+            );
         }
 
         // Read file data
@@ -85,18 +122,21 @@ pub async fn upload_files(
             );
             state
                 .db
-                .update_upload_log_status(log_id, "failed", Some(file_count), Some(error_msg.clone()))
+                .update_upload_log_status(
+                    log_id,
+                    "failed",
+                    Some(file_count),
+                    Some(error_msg.clone()),
+                )
                 .await
                 .ok();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": error_msg })),
-            )
-                .into_response());
+            return Err(
+                (StatusCode::BAD_REQUEST, Json(json!({ "error": error_msg }))).into_response(),
+            );
         }
 
-        // Save to temp directory
-        let temp_path = state.config.paths.temp_dir.join(&file_name);
+        // Save to temp directory (using sanitized filename)
+        let temp_path = state.config.paths.temp_dir.join(&sanitized_name);
         let mut file = File::create(&temp_path)
             .await
             .map_err(|e| internal_error(&format!("Failed to create file: {}", e)))?;
@@ -112,7 +152,12 @@ pub async fn upload_files(
     if uploaded_files.is_empty() {
         state
             .db
-            .update_upload_log_status(log_id, "failed", Some(0), Some("No files uploaded".to_string()))
+            .update_upload_log_status(
+                log_id,
+                "failed",
+                Some(0),
+                Some("No files uploaded".to_string()),
+            )
             .await
             .ok();
         return Err((
@@ -143,7 +188,12 @@ pub async fn upload_files(
             let error_msg = format!("Processing failed: {}", e);
             state
                 .db
-                .update_upload_log_status(log_id, "failed", Some(file_count), Some(error_msg.clone()))
+                .update_upload_log_status(
+                    log_id,
+                    "failed",
+                    Some(file_count),
+                    Some(error_msg.clone()),
+                )
                 .await
                 .ok();
 

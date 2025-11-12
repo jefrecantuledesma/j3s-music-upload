@@ -1,5 +1,5 @@
-# Build stage - use specific Debian version to match runtime
-FROM rust:1.82-bookworm as builder
+# Build stage - use latest Rust with Debian bookworm
+FROM rust:bookworm as builder
 
 WORKDIR /app
 

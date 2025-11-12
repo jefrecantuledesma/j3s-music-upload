@@ -82,6 +82,12 @@ enabled = true
 ytdlp_path = "yt-dlp"
 # Audio format preference
 audio_format = "best"
+# Format selector passed to yt-dlp (--format)
+format_selector = "bestaudio/best"
+# Player client hint for yt-dlp extractor (web/android/ios). Set empty to disable.
+player_client = "web"
+# Extra raw arguments appended before the URL
+extra_args = []
 EOF
 
 echo -e "${GREEN}✓ config.toml created with auto-generated JWT secret${NC}"

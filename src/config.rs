@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use anyhow::{Context, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -48,18 +48,23 @@ pub struct YoutubeConfig {
     pub enabled: bool,
     pub ytdlp_path: String,
     pub audio_format: String,
+    #[serde(default = "YoutubeConfig::default_format_selector")]
+    pub format_selector: String,
+    #[serde(default = "YoutubeConfig::default_player_client")]
+    pub player_client: Option<String>,
+    #[serde(default)]
+    pub extra_args: Vec<String>,
 }
 
 impl Config {
     pub fn load() -> Result<Self> {
-        let config_path = std::env::var("CONFIG_PATH")
-            .unwrap_or_else(|_| "config.toml".to_string());
+        let config_path =
+            std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".to_string());
 
         let mut config: Config = if std::path::Path::new(&config_path).exists() {
             let content = std::fs::read_to_string(&config_path)
                 .context(format!("Failed to read config file at {}", config_path))?;
-            toml::from_str(&content)
-                .context("Failed to parse config file")?
+            toml::from_str(&content).context("Failed to parse config file")?
         } else {
             tracing::warn!("Config file not found at {}, using defaults", config_path);
             Self::default()
@@ -70,7 +75,8 @@ impl Config {
 
         // Auto-generate JWT secret if it's the default placeholder or empty
         if config.security.jwt_secret.is_empty()
-            || config.security.jwt_secret == "your-secret-key-here-change-this" {
+            || config.security.jwt_secret == "your-secret-key-here-change-this"
+        {
             tracing::warn!("JWT secret not configured, generating random secret");
             config.security.jwt_secret = Self::generate_jwt_secret();
         }
@@ -126,7 +132,10 @@ impl Config {
 
         // Create music_dir if it doesn't exist (for easier setup)
         if !self.paths.music_dir.exists() {
-            tracing::warn!("Music directory does not exist, creating: {:?}", self.paths.music_dir);
+            tracing::warn!(
+                "Music directory does not exist, creating: {:?}",
+                self.paths.music_dir
+            );
             std::fs::create_dir_all(&self.paths.music_dir)
                 .context("Failed to create music directory")?;
         }
@@ -182,7 +191,20 @@ impl Default for Config {
                 enabled: true,
                 ytdlp_path: "yt-dlp".to_string(),
                 audio_format: "best".to_string(),
+                format_selector: YoutubeConfig::default_format_selector(),
+                player_client: YoutubeConfig::default_player_client(),
+                extra_args: Vec::new(),
             },
         }
+    }
+}
+
+impl YoutubeConfig {
+    fn default_format_selector() -> String {
+        "bestaudio/best".to_string()
+    }
+
+    fn default_player_client() -> Option<String> {
+        Some("web".to_string())
     }
 }

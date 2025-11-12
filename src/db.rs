@@ -4,7 +4,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use sqlx::{SqlitePool, Row, sqlite::SqliteConnectOptions};
+use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -16,8 +16,7 @@ pub struct Database {
 impl Database {
     pub async fn new(database_url: &str, _max_connections: u32) -> Result<Self> {
         // Parse the database URL and set create_if_missing
-        let options = SqliteConnectOptions::from_str(database_url)?
-            .create_if_missing(true);
+        let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
 
         let pool = SqlitePool::connect_with(options)
             .await
@@ -118,8 +117,7 @@ impl Database {
     pub async fn verify_password(&self, username: &str, password: &str) -> Result<User> {
         let user = self.get_user_by_username(username).await?;
 
-        verify_password(password, &user.password_hash)
-            .context("Invalid password")?;
+        verify_password(password, &user.password_hash).context("Invalid password")?;
 
         Ok(user)
     }
@@ -207,7 +205,11 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_upload_logs(&self, user_id: Option<&str>, limit: i64) -> Result<Vec<UploadLog>> {
+    pub async fn get_upload_logs(
+        &self,
+        user_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<UploadLog>> {
         let logs = if let Some(uid) = user_id {
             sqlx::query_as::<_, UploadLog>(
                 r#"
@@ -302,8 +304,8 @@ pub fn hash_password(password: &str) -> Result<String> {
 }
 
 pub fn verify_password(password: &str, hash: &str) -> Result<()> {
-    let parsed_hash = PasswordHash::new(hash)
-        .map_err(|e| anyhow::anyhow!("Invalid password hash: {}", e))?;
+    let parsed_hash =
+        PasswordHash::new(hash).map_err(|e| anyhow::anyhow!("Invalid password hash: {}", e))?;
     Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
         .map_err(|e| anyhow::anyhow!("Password verification failed: {}", e))?;
