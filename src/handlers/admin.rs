@@ -1,5 +1,5 @@
 use crate::auth::AuthUser;
-use crate::models::{AdminChangePasswordRequest, ChangePasswordRequest, CreateUser, User};
+use crate::models::{AdminChangePasswordRequest, ChangePasswordRequest, CreateUser, UpdateLibraryPathRequest, User};
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
@@ -15,6 +15,7 @@ pub struct CreateUserRequest {
     pub username: String,
     pub password: String,
     pub is_admin: bool,
+    pub library_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,6 +71,7 @@ pub async fn create_user(
             username: req.username,
             password: req.password,
             is_admin: req.is_admin,
+            library_path: req.library_path,
         })
         .await
         .map_err(|e| {
@@ -285,6 +287,70 @@ pub async fn admin_change_user_password(
 
     Ok(Json(json!({
         "message": "User password changed successfully"
+    })))
+}
+
+// Update user's library path (admin only)
+pub async fn update_user_library_path(
+    State(state): State<Arc<crate::AppState>>,
+    Extension(admin): Extension<AuthUser>,
+    Path(user_id): Path<String>,
+    Json(req): Json<UpdateLibraryPathRequest>,
+) -> Result<Json<serde_json::Value>, Response> {
+    // Ensure requester is admin
+    if !admin.is_admin {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Admin privileges required"
+            })),
+        )
+            .into_response());
+    }
+
+    // Validate library path
+    if req.library_path.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Library path cannot be empty"
+            })),
+        )
+            .into_response());
+    }
+
+    // SECURITY: Validate path doesn't contain path traversal attempts
+    if req.library_path.contains("..") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Library path contains invalid characters (..)"
+            })),
+        )
+            .into_response());
+    }
+
+    // Verify user exists
+    state.db.get_user_by_id(&user_id).await.map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": "User not found"
+            })),
+        )
+            .into_response()
+    })?;
+
+    // Update library path
+    state
+        .db
+        .update_library_path(&user_id, &req.library_path)
+        .await
+        .map_err(|e| internal_error(&format!("Failed to update library path: {}", e)))?;
+
+    Ok(Json(json!({
+        "message": "User library path updated successfully",
+        "library_path": req.library_path
     })))
 }
 

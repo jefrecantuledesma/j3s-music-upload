@@ -42,14 +42,15 @@ impl Database {
 
         sqlx::query(
             r#"
-            INSERT INTO users (id, username, password_hash, is_admin)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (id, username, password_hash, is_admin, library_path)
+            VALUES (?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
         .bind(&user.username)
         .bind(&password_hash)
         .bind(user.is_admin)
+        .bind(&user.library_path)
         .execute(&self.pool)
         .await
         .context("Failed to create user")?;
@@ -60,7 +61,7 @@ impl Database {
     pub async fn get_user_by_id(&self, id: &str) -> Result<User> {
         let user = sqlx::query_as::<_, User>(
             r#"
-            SELECT id, username, password_hash, is_admin, created_at, updated_at
+            SELECT id, username, password_hash, is_admin, library_path, created_at, updated_at
             FROM users
             WHERE id = ?
             "#,
@@ -76,7 +77,7 @@ impl Database {
     pub async fn get_user_by_username(&self, username: &str) -> Result<User> {
         let user = sqlx::query_as::<_, User>(
             r#"
-            SELECT id, username, password_hash, is_admin, created_at, updated_at
+            SELECT id, username, password_hash, is_admin, library_path, created_at, updated_at
             FROM users
             WHERE username = ?
             "#,
@@ -92,7 +93,7 @@ impl Database {
     pub async fn list_users(&self) -> Result<Vec<User>> {
         let users = sqlx::query_as::<_, User>(
             r#"
-            SELECT id, username, password_hash, is_admin, created_at, updated_at
+            SELECT id, username, password_hash, is_admin, library_path, created_at, updated_at
             FROM users
             ORDER BY created_at DESC
             "#,
@@ -135,6 +136,21 @@ impl Database {
         .execute(&self.pool)
         .await
         .context("Failed to update password")?;
+
+        Ok(())
+    }
+
+    pub async fn update_library_path(&self, user_id: &str, library_path: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE users SET library_path = ? WHERE id = ?
+            "#,
+        )
+        .bind(library_path)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update library path")?;
 
         Ok(())
     }

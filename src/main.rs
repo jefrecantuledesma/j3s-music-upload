@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod handlers;
 mod models;
+mod paths;
 mod templates;
 
 use crate::auth::{auth_middleware, AuthState};
@@ -10,7 +11,7 @@ use crate::config::Config;
 use crate::db::Database;
 use crate::handlers::admin::{
     admin_change_user_password, change_own_password, create_user, delete_user, get_config,
-    get_upload_logs, list_config, list_users, update_config,
+    get_upload_logs, list_config, list_users, update_config, update_user_library_path,
 };
 use crate::handlers::auth_handlers::{login, logout};
 use crate::handlers::upload::upload_files;
@@ -67,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
             username: "admin".to_string(),
             password: "admin".to_string(),
             is_admin: true,
+            library_path: None, // Admin can set this later via admin panel
         })
         .await?;
 
@@ -96,6 +98,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/admin/users/:id/password",
             post(admin_change_user_password),
+        )
+        .route(
+            "/api/admin/users/:id/library",
+            post(update_user_library_path),
         )
         .route("/api/user/change-password", post(change_own_password))
         .route("/api/admin/config", get(list_config).post(update_config))

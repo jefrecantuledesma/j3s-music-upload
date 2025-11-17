@@ -1,6 +1,7 @@
 use crate::auth::AuthUser;
 use crate::config::Config;
 use crate::models::{CreateUploadLog, UploadResponse, YoutubeDownloadRequest};
+use crate::paths::get_user_directories;
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
@@ -8,6 +9,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 
@@ -26,6 +28,27 @@ pub async fn download_youtube(
         )
             .into_response());
     }
+
+    // Get user from database to access library_path
+    let db_user = state
+        .db
+        .get_user_by_id(&user.user_id)
+        .await
+        .map_err(|e| internal_error(&format!("Failed to get user: {}", e)))?;
+
+    // Get user-specific directories
+    let (music_dir, temp_dir) = get_user_directories(&state.config, &db_user.library_path)
+        .await
+        .map_err(|e| {
+            internal_error(&format!("Failed to get user directories: {}", e))
+        })?;
+
+    tracing::info!(
+        "User {} downloading YouTube to music_dir: {}, temp_dir: {}",
+        user.username,
+        music_dir.display(),
+        temp_dir.display()
+    );
 
     // SECURITY: Strict URL validation to prevent command injection
     // Only allow HTTPS YouTube URLs with specific patterns
@@ -70,12 +93,12 @@ pub async fn download_youtube(
         .map_err(|e| internal_error(&format!("Failed to update log: {}", e)))?;
 
     // Download with yt-dlp
-    let result = download_with_ytdlp(&state.config, &req.url).await;
+    let result = download_with_ytdlp(&state.config, &temp_dir, &req.url).await;
 
     match result {
         Ok(file_count) => {
             // Process with Ferric
-            match process_temp_dir(&state.config).await {
+            match process_temp_dir(&state.config, &temp_dir, &music_dir).await {
                 Ok(_) => {
                     state
                         .db
@@ -130,8 +153,8 @@ pub async fn download_youtube(
     }
 }
 
-async fn download_with_ytdlp(config: &Config, url: &str) -> anyhow::Result<i32> {
-    let args = build_ytdlp_args(config, url);
+async fn download_with_ytdlp(config: &Config, temp_dir: &PathBuf, url: &str) -> anyhow::Result<i32> {
+    let args = build_ytdlp_args(config, temp_dir, url);
 
     let output = tokio::process::Command::new(&config.youtube.ytdlp_path)
         .args(&args)
@@ -145,7 +168,7 @@ async fn download_with_ytdlp(config: &Config, url: &str) -> anyhow::Result<i32> 
 
     // Count downloaded files
     let mut count = 0;
-    let mut entries = fs::read_dir(&config.paths.temp_dir).await?;
+    let mut entries = fs::read_dir(temp_dir).await?;
     while let Some(entry) = entries.next_entry().await? {
         if entry.file_type().await?.is_file() {
             count += 1;
@@ -155,14 +178,14 @@ async fn download_with_ytdlp(config: &Config, url: &str) -> anyhow::Result<i32> 
     Ok(count)
 }
 
-fn build_ytdlp_args(config: &Config, url: &str) -> Vec<String> {
+fn build_ytdlp_args(config: &Config, temp_dir: &PathBuf, url: &str) -> Vec<String> {
     let mut args = vec![
         "--no-warnings".to_string(),
         "--extract-audio".to_string(),
         "--audio-format".to_string(),
         config.youtube.audio_format.clone(),
         "--output".to_string(),
-        format!("{}/%(title)s.%(ext)s", config.paths.temp_dir.display()),
+        format!("{}/%(title)s.%(ext)s", temp_dir.display()),
         "--no-playlist".to_string(),
         "--ignore-no-formats-error".to_string(),
     ];
@@ -190,13 +213,13 @@ fn build_ytdlp_args(config: &Config, url: &str) -> Vec<String> {
     args
 }
 
-async fn process_temp_dir(config: &Config) -> anyhow::Result<()> {
+async fn process_temp_dir(config: &Config, temp_dir: &PathBuf, music_dir: &PathBuf) -> anyhow::Result<()> {
     // Call Ferric to process the files in temp dir
     let output = tokio::process::Command::new(&config.paths.ferric_path)
         .arg("--input-dir")
-        .arg(&config.paths.temp_dir)
+        .arg(temp_dir)
         .arg("--output-dir")
-        .arg(&config.paths.music_dir)
+        .arg(music_dir)
         .output()
         .await?;
 
@@ -206,7 +229,7 @@ async fn process_temp_dir(config: &Config) -> anyhow::Result<()> {
     }
 
     // Clean up temp directory
-    let mut entries = fs::read_dir(&config.paths.temp_dir).await?;
+    let mut entries = fs::read_dir(temp_dir).await?;
     while let Some(entry) = entries.next_entry().await? {
         if entry.file_type().await?.is_file() {
             fs::remove_file(entry.path()).await.ok();
@@ -233,8 +256,9 @@ mod tests {
     #[test]
     fn build_args_include_default_player_client() {
         let config = Config::default();
+        let temp_dir = PathBuf::from("/tmp/test");
         let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
-        let args = build_ytdlp_args(&config, url);
+        let args = build_ytdlp_args(&config, &temp_dir, url);
 
         assert!(
             args.windows(2)
@@ -249,9 +273,10 @@ mod tests {
     fn build_args_append_extra_args() {
         let mut config = Config::default();
         config.youtube.extra_args = vec!["--throttled-rate=100K".to_string()];
+        let temp_dir = PathBuf::from("/tmp/test");
         let url = "https://youtu.be/example";
 
-        let args = build_ytdlp_args(&config, url);
+        let args = build_ytdlp_args(&config, &temp_dir, url);
 
         assert!(args.contains(&"--throttled-rate=100K".to_string()));
         assert_eq!(args.last().unwrap(), url);

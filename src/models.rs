@@ -9,6 +9,7 @@ pub struct User {
     #[serde(skip_serializing)]
     pub password_hash: String,
     pub is_admin: bool,
+    pub library_path: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -18,6 +19,7 @@ pub struct CreateUser {
     pub username: String,
     pub password: String,
     pub is_admin: bool,
+    pub library_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,4 +86,10 @@ pub struct ChangePasswordRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminChangePasswordRequest {
     pub new_password: String,
+}
+
+// Update user library path (admin only)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateLibraryPathRequest {
+    pub library_path: String,
 }

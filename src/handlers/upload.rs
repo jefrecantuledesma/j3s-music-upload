@@ -1,6 +1,7 @@
 use crate::auth::AuthUser;
 use crate::config::Config;
 use crate::models::{CreateUploadLog, UploadResponse};
+use crate::paths::get_user_directories;
 use axum::{
     extract::{Extension, Multipart, State},
     http::StatusCode,
@@ -8,7 +9,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
@@ -20,6 +21,27 @@ pub async fn upload_files(
 ) -> Result<Json<UploadResponse>, Response> {
     let mut uploaded_files = Vec::new();
     let mut file_count = 0;
+
+    // Get user from database to access library_path
+    let db_user = state
+        .db
+        .get_user_by_id(&user.user_id)
+        .await
+        .map_err(|e| internal_error(&format!("Failed to get user: {}", e)))?;
+
+    // Get user-specific directories
+    let (music_dir, temp_dir) = get_user_directories(&state.config, &db_user.library_path)
+        .await
+        .map_err(|e| {
+            internal_error(&format!("Failed to get user directories: {}", e))
+        })?;
+
+    tracing::info!(
+        "User {} uploading to music_dir: {}, temp_dir: {}",
+        user.username,
+        music_dir.display(),
+        temp_dir.display()
+    );
 
     // Create upload log
     let log_id = state
@@ -136,7 +158,7 @@ pub async fn upload_files(
         }
 
         // Save to temp directory (using sanitized filename)
-        let temp_path = state.config.paths.temp_dir.join(&sanitized_name);
+        let temp_path = temp_dir.join(&sanitized_name);
         let mut file = File::create(&temp_path)
             .await
             .map_err(|e| internal_error(&format!("Failed to create file: {}", e)))?;
@@ -168,7 +190,7 @@ pub async fn upload_files(
     }
 
     // Process files with Ferric
-    let result = process_with_ferric(&state.config, &uploaded_files).await;
+    let result = process_with_ferric(&state.config, &temp_dir, &music_dir, &uploaded_files).await;
 
     match result {
         Ok(_) => {
@@ -206,13 +228,18 @@ pub async fn upload_files(
     }
 }
 
-async fn process_with_ferric(config: &Config, files: &[std::path::PathBuf]) -> anyhow::Result<()> {
+async fn process_with_ferric(
+    config: &Config,
+    temp_dir: &PathBuf,
+    music_dir: &PathBuf,
+    files: &[std::path::PathBuf],
+) -> anyhow::Result<()> {
     // Call Ferric to process the files
     let output = tokio::process::Command::new(&config.paths.ferric_path)
         .arg("--input-dir")
-        .arg(&config.paths.temp_dir)
+        .arg(temp_dir)
         .arg("--output-dir")
-        .arg(&config.paths.music_dir)
+        .arg(music_dir)
         .output()
         .await?;
 
