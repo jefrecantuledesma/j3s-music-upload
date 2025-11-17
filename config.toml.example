@@ -42,3 +42,13 @@ format_selector = "bestaudio/best"
 player_client = "web"
 # Extra raw arguments appended before the URL
 extra_args = []
+
+[spotify]
+# Enable Spotify integration (future feature)
+enabled = false
+# Spotify API client ID (obtain from https://developer.spotify.com)
+client_id = ""
+# Spotify API client secret
+client_secret = ""
+# Redirect URI for OAuth (must match Spotify app settings)
+redirect_uri = "http://localhost:8080/api/spotify/callback"

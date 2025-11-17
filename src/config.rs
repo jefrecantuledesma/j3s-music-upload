@@ -10,6 +10,8 @@ pub struct Config {
     pub security: SecurityConfig,
     pub upload: UploadConfig,
     pub youtube: YoutubeConfig,
+    #[serde(default)]
+    pub spotify: SpotifyConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +56,18 @@ pub struct YoutubeConfig {
     pub player_client: Option<String>,
     #[serde(default)]
     pub extra_args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpotifyConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub client_id: String,
+    #[serde(default)]
+    pub client_secret: String,
+    #[serde(default = "SpotifyConfig::default_redirect_uri")]
+    pub redirect_uri: String,
 }
 
 impl Config {
@@ -195,6 +209,7 @@ impl Default for Config {
                 player_client: YoutubeConfig::default_player_client(),
                 extra_args: Vec::new(),
             },
+            spotify: SpotifyConfig::default(),
         }
     }
 }
@@ -206,5 +221,22 @@ impl YoutubeConfig {
 
     fn default_player_client() -> Option<String> {
         Some("web".to_string())
+    }
+}
+
+impl Default for SpotifyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            client_id: String::new(),
+            client_secret: String::new(),
+            redirect_uri: Self::default_redirect_uri(),
+        }
+    }
+}
+
+impl SpotifyConfig {
+    fn default_redirect_uri() -> String {
+        "http://localhost:8080/api/spotify/callback".to_string()
     }
 }
