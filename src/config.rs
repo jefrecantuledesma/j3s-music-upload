@@ -31,6 +31,8 @@ pub struct PathsConfig {
     pub music_dir: PathBuf,
     pub temp_dir: PathBuf,
     pub ferric_path: PathBuf,
+    #[serde(default)]
+    pub ferric_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +64,10 @@ pub struct YoutubeConfig {
 pub struct SpotifyConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default = "SpotifyConfig::default_spotdl_path")]
+    pub spotdl_path: String,
+    #[serde(default = "SpotifyConfig::default_audio_format")]
+    pub audio_format: String,
     #[serde(default)]
     pub client_id: String,
     #[serde(default)]
@@ -184,6 +190,7 @@ impl Default for Config {
                 music_dir: PathBuf::from("/tmp/music"),
                 temp_dir: PathBuf::from("/tmp/music_upload"),
                 ferric_path: PathBuf::from("/usr/local/bin/ferric"),
+                ferric_enabled: false,
             },
             security: SecurityConfig {
                 jwt_secret: "your-secret-key-here-change-this".to_string(),
@@ -204,7 +211,7 @@ impl Default for Config {
             youtube: YoutubeConfig {
                 enabled: true,
                 ytdlp_path: "yt-dlp".to_string(),
-                audio_format: "best".to_string(),
+                audio_format: "opus".to_string(),
                 format_selector: YoutubeConfig::default_format_selector(),
                 player_client: YoutubeConfig::default_player_client(),
                 extra_args: Vec::new(),
@@ -220,7 +227,7 @@ impl YoutubeConfig {
     }
 
     fn default_player_client() -> Option<String> {
-        Some("web".to_string())
+        Some("android".to_string())
     }
 }
 
@@ -228,6 +235,8 @@ impl Default for SpotifyConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            spotdl_path: Self::default_spotdl_path(),
+            audio_format: Self::default_audio_format(),
             client_id: String::new(),
             client_secret: String::new(),
             redirect_uri: Self::default_redirect_uri(),
@@ -236,6 +245,14 @@ impl Default for SpotifyConfig {
 }
 
 impl SpotifyConfig {
+    fn default_spotdl_path() -> String {
+        "spotdl".to_string()
+    }
+
+    fn default_audio_format() -> String {
+        "opus".to_string()
+    }
+
     fn default_redirect_uri() -> String {
         "http://localhost:8080/api/spotify/callback".to_string()
     }

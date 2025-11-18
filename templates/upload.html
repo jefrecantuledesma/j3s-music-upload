@@ -5,6 +5,7 @@
 {% block nav %}
 <a href="/upload">Upload</a>
 <a href="/logs">History</a>
+<a href="/settings">Settings</a>
 <a href="/admin" id="adminLink" style="display: none;">Admin</a>
 <button onclick="logout()">Logout</button>
 {% endblock %}
@@ -20,7 +21,7 @@
 </div>
 
 <div id="forms">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
         <!-- File Upload -->
         <div style="border: 2px solid #667eea; border-radius: 10px; padding: 20px;">
             <h3 style="color: #667eea; margin-bottom: 20px;">Upload Files</h3>
@@ -34,6 +35,22 @@
                 </div>
 
                 <button type="submit" class="btn" style="width: 100%;">Upload Files</button>
+            </form>
+        </div>
+
+        <!-- Spotify Download -->
+        <div style="border: 2px solid #1DB954; border-radius: 10px; padding: 20px;">
+            <h3 style="color: #1DB954; margin-bottom: 20px;">Download from Spotify</h3>
+            <form id="spotifyForm">
+                <div class="form-group">
+                    <label for="spotifyUrl">Spotify URL</label>
+                    <input type="url" id="spotifyUrl" name="url" placeholder="https://open.spotify.com/track/..." required>
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        Track, album, playlist, or artist URLs supported
+                    </small>
+                </div>
+
+                <button type="submit" class="btn" style="width: 100%; background: #1DB954;">Download Audio</button>
             </form>
         </div>
 
@@ -57,7 +74,7 @@
     <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
         <h3 style="color: #333; margin-bottom: 15px;">How it works</h3>
         <ol style="padding-left: 20px; color: #666; line-height: 1.8;">
-            <li>Upload your audio files or provide a YouTube URL</li>
+            <li>Upload your audio files or provide a Spotify/YouTube URL</li>
             <li>Files are temporarily stored in the processing directory</li>
             <li>Ferric processes the files (converts FLAC to OPUS, organizes, and normalizes)</li>
             <li>Processed files are merged into the Navidrome music library</li>
@@ -99,6 +116,8 @@
         }
     }
 
+    let currentEventSource = null;
+
     function showLoading(text) {
         document.getElementById('loadingText').textContent = text;
         document.getElementById('loading').classList.add('show');
@@ -107,8 +126,28 @@
     }
 
     function hideLoading() {
+        if (currentEventSource) {
+            currentEventSource.close();
+            currentEventSource = null;
+        }
         document.getElementById('loading').classList.remove('show');
         document.getElementById('forms').style.display = 'block';
+    }
+
+    function showProgressWithSSE(sessionId) {
+        if (!sessionId) return;
+
+        const eventSource = new EventSource(`/api/progress/${sessionId}`);
+        currentEventSource = eventSource;
+
+        eventSource.onmessage = (event) => {
+            document.getElementById('loadingText').textContent = event.data;
+        };
+
+        eventSource.onerror = () => {
+            eventSource.close();
+            currentEventSource = null;
+        };
     }
 
     // File upload handler
@@ -146,6 +185,47 @@
             } else {
                 showAlert(data.error || 'Upload failed', 'error');
             }
+        } catch (error) {
+            hideLoading();
+            showAlert('Network error. Please try again.', 'error');
+        }
+    });
+
+    // Spotify download handler
+    document.getElementById('spotifyForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const url = document.getElementById('spotifyUrl').value;
+        showLoading('Starting Spotify download...');
+
+        try {
+            const response = await fetch('/api/spotify', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ url })
+            });
+
+            const data = await response.json();
+
+            // If we got a session_id, connect to SSE for progress updates
+            if (data.session_id) {
+                showProgressWithSSE(data.session_id);
+            }
+
+            // Wait a bit for final message, then hide loading
+            setTimeout(() => {
+                hideLoading();
+                if (response.ok) {
+                    showAlert(data.message, 'success');
+                    document.getElementById('spotifyForm').reset();
+                } else {
+                    showAlert(data.error || 'Download failed', 'error');
+                }
+            }, 2500);
+
         } catch (error) {
             hideLoading();
             showAlert('Network error. Please try again.', 'error');

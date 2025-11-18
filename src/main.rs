@@ -4,19 +4,22 @@ mod db;
 mod handlers;
 mod models;
 mod paths;
+mod progress;
 mod templates;
 
 use crate::auth::{auth_middleware, AuthState};
 use crate::config::Config;
 use crate::db::Database;
 use crate::handlers::admin::{
-    admin_change_user_password, change_own_password, create_user, delete_user, get_config,
-    get_upload_logs, list_config, list_users, update_config, update_user_library_path,
+    admin_change_user_password, change_own_password, change_own_username, create_user,
+    delete_user, get_config, get_system_info, get_upload_logs, get_user_directories_info,
+    get_user_info, list_config, list_users, update_config, update_user_library_path,
 };
 use crate::handlers::auth_handlers::{login, logout};
+use crate::handlers::spotify::download_spotify;
 use crate::handlers::upload::upload_files;
 use crate::handlers::youtube::download_youtube;
-use crate::templates::{AdminTemplate, LoginTemplate, LogsTemplate, UploadTemplate};
+use crate::templates::{AdminTemplate, LoginTemplate, LogsTemplate, SettingsTemplate, UploadTemplate};
 use axum::{
     middleware,
     routing::{delete, get, post},
@@ -36,6 +39,30 @@ pub struct AppState {
     pub db: Database,
     pub config: Config,
     pub auth: AuthState,
+    pub progress_store: progress::ProgressStore,
+}
+
+// SSE handler for streaming progress updates
+async fn stream_progress(
+    axum::extract::Path(session_id): axum::extract::Path<String>,
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> axum::response::Sse<impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
+    use futures_util::stream::StreamExt;
+    use tokio_stream::wrappers::ReceiverStream;
+
+    // Register this session and get the receiver
+    let rx = progress::register_session(&state.progress_store, session_id.clone()).await;
+
+    // Convert receiver to stream
+    let stream = ReceiverStream::new(rx).map(|msg| {
+        Ok(axum::response::sse::Event::default().data(msg.message))
+    });
+
+    axum::response::Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(std::time::Duration::from_secs(1))
+            .text("keep-alive"),
+    )
 }
 
 #[tokio::main]
@@ -81,11 +108,15 @@ async fn main() -> anyhow::Result<()> {
         config.security.session_timeout_hours,
     );
 
+    // Create progress store for tracking upload/download progress
+    let progress_store = progress::create_progress_store();
+
     // Create shared application state
     let app_state = Arc::new(AppState {
         db,
         config,
         auth: auth_state.clone(),
+        progress_store,
     });
 
     // Protected routes (require authentication)
@@ -93,6 +124,8 @@ async fn main() -> anyhow::Result<()> {
         // API routes
         .route("/api/upload", post(upload_files))
         .route("/api/youtube", post(download_youtube))
+        .route("/api/spotify", post(download_spotify))
+        .route("/api/progress/:session_id", get(stream_progress))
         .route("/api/admin/users", get(list_users).post(create_user))
         .route("/api/admin/users/:id", delete(delete_user))
         .route(
@@ -104,12 +137,17 @@ async fn main() -> anyhow::Result<()> {
             post(update_user_library_path),
         )
         .route("/api/user/change-password", post(change_own_password))
+        .route("/api/user/change-username", post(change_own_username))
+        .route("/api/user/info", get(get_user_info))
+        .route("/api/user/directories", get(get_user_directories_info))
+        .route("/api/admin/system-info", get(get_system_info))
         .route("/api/admin/config", get(list_config).post(update_config))
         .route("/api/admin/config/:key", get(get_config))
         .route("/api/admin/logs", get(get_upload_logs))
         .route("/api/logout", post(logout))
         // Template routes (PROTECTED - require login)
         .route("/upload", get(|| async { UploadTemplate }))
+        .route("/settings", get(|| async { SettingsTemplate }))
         .route("/admin", get(|| async { AdminTemplate }))
         .route("/logs", get(|| async { LogsTemplate }))
         .layer(middleware::from_fn_with_state(auth_state, auth_middleware));

@@ -15,3 +15,7 @@ pub struct AdminTemplate;
 #[derive(Template)]
 #[template(path = "logs.html")]
 pub struct LogsTemplate;
+
+#[derive(Template)]
+#[template(path = "settings.html")]
+pub struct SettingsTemplate;

@@ -155,6 +155,21 @@ impl Database {
         Ok(())
     }
 
+    pub async fn update_username(&self, user_id: &str, new_username: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE users SET username = ? WHERE id = ?
+            "#,
+        )
+        .bind(new_username)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update username")?;
+
+        Ok(())
+    }
+
     pub async fn user_exists(&self) -> Result<bool> {
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
             .fetch_one(&self.pool)
@@ -305,6 +320,15 @@ impl Database {
             .collect();
 
         Ok(configs)
+    }
+
+    /// Get ferric_enabled setting from database
+    /// Falls back to config file value if not set in database
+    pub async fn get_ferric_enabled(&self, config: &crate::config::Config) -> Result<bool> {
+        match self.get_config("ferric_enabled").await? {
+            Some(value) => Ok(value == "true"),
+            None => Ok(config.paths.ferric_enabled),
+        }
     }
 }
 

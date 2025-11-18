@@ -1,6 +1,6 @@
 use crate::auth::AuthUser;
 use crate::config::Config;
-use crate::models::{CreateUploadLog, UploadResponse, YoutubeDownloadRequest};
+use crate::models::{CreateUploadLog, SpotifyDownloadRequest, UploadResponse};
 use crate::paths::get_user_directories;
 use axum::{
     extract::{Extension, State},
@@ -13,17 +13,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 
-pub async fn download_youtube(
+pub async fn download_spotify(
     State(state): State<Arc<crate::AppState>>,
     Extension(user): Extension<AuthUser>,
-    Json(req): Json<YoutubeDownloadRequest>,
+    Json(req): Json<SpotifyDownloadRequest>,
 ) -> Result<Json<UploadResponse>, Response> {
-    // Check if YouTube downloads are enabled
-    if !state.config.youtube.enabled {
+    // Generate session ID for progress tracking
+    let session_id = uuid::Uuid::new_v4().to_string();
+    // Check if Spotify downloads are enabled
+    if !state.config.spotify.enabled {
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({
-                "error": "YouTube downloads are disabled"
+                "error": "Spotify downloads are disabled"
             })),
         )
             .into_response());
@@ -44,19 +46,19 @@ pub async fn download_youtube(
         })?;
 
     tracing::info!(
-        "User {} downloading YouTube to music_dir: {}, temp_dir: {}",
+        "User {} downloading Spotify to music_dir: {}, temp_dir: {}",
         user.username,
         music_dir.display(),
         temp_dir.display()
     );
 
     // SECURITY: Strict URL validation to prevent command injection
-    // Only allow HTTPS YouTube URLs with specific patterns
+    // Only allow HTTPS Spotify URLs with specific patterns
     let url = req.url.trim();
-    let is_valid = (url.starts_with("https://www.youtube.com/watch?v=")
-        || url.starts_with("https://youtube.com/watch?v=")
-        || url.starts_with("https://youtu.be/")
-        || url.starts_with("https://m.youtube.com/watch?v="))
+    let is_valid = (url.starts_with("https://open.spotify.com/track/")
+        || url.starts_with("https://open.spotify.com/album/")
+        || url.starts_with("https://open.spotify.com/playlist/")
+        || url.starts_with("https://open.spotify.com/artist/"))
         && !url.contains(';')
         && !url.contains('|')
         && !url.contains('`')
@@ -64,22 +66,25 @@ pub async fn download_youtube(
         && !url.contains("&&")
         && !url.contains("||");
 
-    if !is_valid || url.len() > 200 {
+    if !is_valid || url.len() > 300 {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": "Invalid YouTube URL format. Must be a standard HTTPS YouTube watch URL."
+                "error": "Invalid Spotify URL format. Must be a standard HTTPS Spotify URL (track, album, playlist, or artist)."
             })),
         )
             .into_response());
     }
+
+    // Send initial progress
+    crate::progress::send_progress(&state.progress_store, &session_id, "Starting Spotify download...".to_string()).await;
 
     // Create upload log
     let log_id = state
         .db
         .create_upload_log(CreateUploadLog {
             user_id: user.user_id.clone(),
-            upload_type: "youtube".to_string(),
+            upload_type: "spotify".to_string(),
             source: req.url.clone(),
         })
         .await
@@ -92,12 +97,14 @@ pub async fn download_youtube(
         .await
         .map_err(|e| internal_error(&format!("Failed to update log: {}", e)))?;
 
-    // Download with yt-dlp
-    let result = download_with_ytdlp(&state.config, &temp_dir, &req.url).await;
+    // Download with spotdl
+    crate::progress::send_progress(&state.progress_store, &session_id, "Downloading from Spotify...".to_string()).await;
+    let result = download_with_spotdl(&state.config, &temp_dir, &req.url).await;
 
     match result {
         Ok(file_count) => {
             // Process with Ferric (check database for ferric_enabled setting)
+            crate::progress::send_progress(&state.progress_store, &session_id, format!("Downloaded {} file(s), now processing...", file_count)).await;
             match process_temp_dir(&state, &temp_dir, &music_dir).await {
                 Ok(_) => {
                     state
@@ -106,6 +113,15 @@ pub async fn download_youtube(
                         .await
                         .map_err(|e| internal_error(&format!("Failed to update log: {}", e)))?;
 
+                    crate::progress::send_progress(&state.progress_store, &session_id, "✓ Complete!".to_string()).await;
+                    // Cleanup session after a short delay
+                    let store = state.progress_store.clone();
+                    let sid = session_id.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        crate::progress::unregister_session(&store, &sid).await;
+                    });
+
                     Ok(Json(UploadResponse {
                         success: true,
                         message: format!(
@@ -113,7 +129,7 @@ pub async fn download_youtube(
                             file_count
                         ),
                         log_id: Some(log_id),
-                        session_id: None,  // TODO: Add progress tracking to YouTube
+                        session_id: Some(session_id),
                     }))
                 }
                 Err(e) => {
@@ -154,17 +170,22 @@ pub async fn download_youtube(
     }
 }
 
-async fn download_with_ytdlp(config: &Config, temp_dir: &PathBuf, url: &str) -> anyhow::Result<i32> {
-    let args = build_ytdlp_args(config, temp_dir, url);
+async fn download_with_spotdl(
+    config: &Config,
+    temp_dir: &PathBuf,
+    url: &str,
+) -> anyhow::Result<i32> {
+    let args = build_spotdl_args(config, temp_dir, url);
 
-    let output = tokio::process::Command::new(&config.youtube.ytdlp_path)
+    let output = tokio::process::Command::new(&config.spotify.spotdl_path)
         .args(&args)
         .output()
         .await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("yt-dlp failed: {}", stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::bail!("spotdl failed: {}\n{}", stderr, stdout);
     }
 
     // Count downloaded files
@@ -179,44 +200,19 @@ async fn download_with_ytdlp(config: &Config, temp_dir: &PathBuf, url: &str) -> 
     Ok(count)
 }
 
-fn build_ytdlp_args(config: &Config, temp_dir: &PathBuf, url: &str) -> Vec<String> {
-    let mut args = vec![
-        "--no-warnings".to_string(),
-        "--extract-audio".to_string(),
-        "--audio-format".to_string(),
-        config.youtube.audio_format.clone(),
+fn build_spotdl_args(config: &Config, temp_dir: &PathBuf, url: &str) -> Vec<String> {
+    // SpotDL expects a file pattern, not just a directory
+    // Pattern: {output_dir}/{artist} - {title}.{output-ext}
+    let output_pattern = format!("{}/{{artist}} - {{title}}.{{output-ext}}", temp_dir.display());
+
+    vec![
+        "download".to_string(),
+        url.to_string(),
         "--output".to_string(),
-        format!("{}/%(title)s.%(ext)s", temp_dir.display()),
-        "--no-playlist".to_string(),
-        "--ignore-no-formats-error".to_string(),
-        // Add embed metadata for better processing
-        "--embed-metadata".to_string(),
-        "--embed-thumbnail".to_string(),
-        // Handle age-restricted and certificate issues better
-        "--no-check-certificates".to_string(),
-    ];
-
-    let format_selector = config.youtube.format_selector.trim();
-    if !format_selector.is_empty() {
-        args.push("--format".to_string());
-        args.push(format_selector.to_string());
-    }
-
-    if let Some(client) = config.youtube.player_client.as_deref() {
-        let trimmed = client.trim();
-        if !trimmed.is_empty() {
-            // Force yt-dlp to use a stable player client (web avoids "Precondition check failed").
-            args.push("--extractor-args".to_string());
-            args.push(format!("youtube:player_client={}", trimmed));
-        }
-    }
-
-    if !config.youtube.extra_args.is_empty() {
-        args.extend(config.youtube.extra_args.iter().cloned());
-    }
-
-    args.push(url.to_string());
-    args
+        output_pattern,
+        "--format".to_string(),
+        config.spotify.audio_format.clone(),
+    ]
 }
 
 async fn process_temp_dir(
@@ -286,31 +282,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_args_include_default_player_client() {
+    fn build_args_correct_format() {
         let config = Config::default();
         let temp_dir = PathBuf::from("/tmp/test");
-        let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
-        let args = build_ytdlp_args(&config, &temp_dir, url);
+        let url = "https://open.spotify.com/track/example";
+        let args = build_spotdl_args(&config, &temp_dir, url);
 
-        assert!(
-            args.windows(2)
-                .any(|pair| pair[0] == "--extractor-args" && pair[1] == "youtube:player_client=android"),
-            "expected --extractor-args youtube:player_client=android in {:?}",
-            args
-        );
-        assert_eq!(args.last().unwrap(), url);
+        assert_eq!(args[0], "download");
+        assert_eq!(args[1], url);
+        assert_eq!(args[2], "--output");
+        assert_eq!(args[3], "/tmp/test/{artist} - {title}.{output-ext}");
+        assert_eq!(args[4], "--format");
+        assert_eq!(args[5], "opus");
     }
 
     #[test]
-    fn build_args_append_extra_args() {
-        let mut config = Config::default();
-        config.youtube.extra_args = vec!["--throttled-rate=100K".to_string()];
-        let temp_dir = PathBuf::from("/tmp/test");
-        let url = "https://youtu.be/example";
+    fn build_args_handles_different_urls() {
+        let config = Config::default();
+        let temp_dir = PathBuf::from("/srv/music/tmp");
+        let urls = vec![
+            "https://open.spotify.com/track/123",
+            "https://open.spotify.com/album/456",
+            "https://open.spotify.com/playlist/789",
+        ];
 
-        let args = build_ytdlp_args(&config, &temp_dir, url);
-
-        assert!(args.contains(&"--throttled-rate=100K".to_string()));
-        assert_eq!(args.last().unwrap(), url);
+        for url in urls {
+            let args = build_spotdl_args(&config, &temp_dir, url);
+            assert_eq!(args.len(), 6); // Now includes --format opus
+            assert_eq!(args[0], "download");
+            assert_eq!(args[1], url);
+            assert_eq!(args[4], "--format");
+            assert_eq!(args[5], "opus");
+        }
     }
 }

@@ -2,9 +2,65 @@
 
 {% block title %}Admin Panel - Music Upload Service{% endblock %}
 
+{% block extra_head %}
+<style>
+/* Toggle Switch Styles */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 26px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .3s;
+    border-radius: 26px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: #28a745;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(24px);
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+</style>
+{% endblock %}
+
 {% block nav %}
 <a href="/upload">Upload</a>
 <a href="/logs">History</a>
+<a href="/settings">Settings</a>
 <a href="/admin">Admin</a>
 <button onclick="logout()">Logout</button>
 {% endblock %}
@@ -13,29 +69,6 @@
 <h2 style="margin-bottom: 30px; color: #333;">Admin Panel</h2>
 
 <div id="alert" class="alert" style="display: none;"></div>
-
-<!-- Change Password -->
-<div style="margin-bottom: 40px; border: 2px solid #f39c12; border-radius: 10px; padding: 20px;">
-    <h3 style="color: #f39c12; margin-bottom: 20px;">Change Your Password</h3>
-    <form id="changePasswordForm" style="max-width: 500px;">
-        <div class="form-group">
-            <label for="oldPassword">Current Password</label>
-            <input type="password" id="oldPassword" required>
-        </div>
-
-        <div class="form-group">
-            <label for="newPasswordInput">New Password (minimum 8 characters)</label>
-            <input type="password" id="newPasswordInput" required minlength="8">
-        </div>
-
-        <div class="form-group">
-            <label for="confirmPassword">Confirm New Password</label>
-            <input type="password" id="confirmPassword" required minlength="8">
-        </div>
-
-        <button type="submit" class="btn" style="background: #f39c12;">Change Password</button>
-    </form>
-</div>
 
 <!-- User Management -->
 <div style="margin-bottom: 40px; border: 2px solid #667eea; border-radius: 10px; padding: 20px;">
@@ -57,6 +90,14 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="newLibraryPath">Library Path (optional)</label>
+                    <input type="text" id="newLibraryPath" placeholder="/srv/navidrome/music/username">
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        Leave empty to use default. Example: /srv/navidrome/music/sam
+                    </small>
+                </div>
+
+                <div class="form-group">
                     <label>
                         <input type="checkbox" id="newIsAdmin" style="width: auto;">
                         Administrator
@@ -73,6 +114,31 @@
             <div id="userList" style="max-height: 300px; overflow-y: auto;">
                 <p style="color: #666;">Loading...</p>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Info -->
+<div style="margin-bottom: 40px; border: 2px solid #17a2b8; border-radius: 10px; padding: 20px;">
+    <h3 style="color: #17a2b8; margin-bottom: 20px;">System Information</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+        <div style="padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <div style="font-weight: 600; color: #17a2b8; margin-bottom: 5px;">Ferric Processing</div>
+            <div id="ferricStatus" style="font-size: 14px; color: #666; margin-bottom: 15px;">Loading...</div>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 14px; color: #666;">Enable Ferric</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="ferricToggle">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <small style="color: #666; display: block; margin-top: 10px;">
+                Changes apply immediately (overrides config.toml)
+            </small>
+        </div>
+        <div style="padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <div style="font-weight: 600; color: #17a2b8; margin-bottom: 5px;">Spotify Downloads</div>
+            <div id="spotifyStatus" style="font-size: 14px; color: #666;">Loading...</div>
         </div>
     </div>
 </div>
@@ -153,12 +219,21 @@
             }
 
             userList.innerHTML = users.map(user => `
-                <div style="padding: 10px; margin-bottom: 10px; background: #f8f9fa; border-radius: 5px; display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <strong>${user.username}</strong>
-                        ${user.is_admin ? '<span style="color: #667eea; font-size: 12px;"> (Admin)</span>' : ''}
+                <div style="padding: 15px; margin-bottom: 10px; background: #f8f9fa; border-radius: 5px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <div>
+                            <strong>${user.username}</strong>
+                            ${user.is_admin ? '<span style="color: #667eea; font-size: 12px;"> (Admin)</span>' : ''}
+                        </div>
+                        <button class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;" onclick="deleteUser('${user.id}', '${user.username}')">Delete</button>
                     </div>
-                    <button class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;" onclick="deleteUser('${user.id}', '${user.username}')">Delete</button>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
+                        Library: <code style="background: #e9ecef; padding: 2px 6px; border-radius: 3px;">${user.library_path || 'default'}</code>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn" style="padding: 5px 10px; font-size: 12px; background: #6c757d;" onclick="changeLibraryPath('${user.id}', '${user.username}', '${user.library_path || ''}')">Change Library</button>
+                        <button class="btn" style="padding: 5px 10px; font-size: 12px; background: #f39c12;" onclick="resetPassword('${user.id}', '${user.username}')">Reset Password</button>
+                    </div>
                 </div>
             `).join('');
         } catch (error) {
@@ -219,50 +294,70 @@
         }
     }
 
-    document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
+    async function changeLibraryPath(userId, username, currentPath) {
+        const newPath = prompt(`Enter new library path for ${username}:\n\nExample: /srv/navidrome/music/username`, currentPath || '');
 
-        const oldPassword = document.getElementById('oldPassword').value;
-        const newPassword = document.getElementById('newPasswordInput').value;
-        const confirmPassword = document.getElementById('confirmPassword').value;
+        if (newPath === null) return; // User cancelled
 
-        // Validate new password meets requirements (8+ characters)
-        if (newPassword.length < 8) {
-            showAlert('New password must be at least 8 characters', 'error');
-            return;
-        }
-
-        // Check if passwords match
-        if (newPassword !== confirmPassword) {
-            showAlert('New passwords do not match', 'error');
+        if (!newPath.trim()) {
+            showAlert('Library path cannot be empty', 'error');
             return;
         }
 
         try {
-            const response = await fetch('/api/user/change-password', {
+            const response = await fetch(`/api/admin/users/${userId}/library`, {
                 method: 'POST',
                 headers: {
                     'Authorization': 'Bearer ' + token,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    old_password: oldPassword,
-                    new_password: newPassword
-                })
+                body: JSON.stringify({ library_path: newPath })
             });
 
             const data = await response.json();
 
             if (response.ok) {
-                showAlert('Password changed successfully', 'success');
-                document.getElementById('changePasswordForm').reset();
+                showAlert('Library path updated successfully', 'success');
+                loadUsers();
             } else {
-                showAlert(data.error || 'Failed to change password', 'error');
+                showAlert(data.error || 'Failed to update library path', 'error');
             }
         } catch (error) {
             showAlert('Network error', 'error');
         }
-    });
+    }
+
+    async function resetPassword(userId, username) {
+        const newPassword = prompt(`Enter new password for ${username}:\n\n(Minimum 8 characters)`);
+
+        if (newPassword === null) return; // User cancelled
+
+        if (newPassword.length < 8) {
+            showAlert('Password must be at least 8 characters', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/admin/users/${userId}/password`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ new_password: newPassword })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showAlert('Password reset successfully', 'success');
+            } else {
+                showAlert(data.error || 'Failed to reset password', 'error');
+            }
+        } catch (error) {
+            showAlert('Network error', 'error');
+        }
+    }
 
     document.getElementById('createUserForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -270,6 +365,7 @@
         const username = document.getElementById('newUsername').value;
         const password = document.getElementById('newPassword').value;
         const is_admin = document.getElementById('newIsAdmin').checked;
+        const library_path = document.getElementById('newLibraryPath').value || null;
 
         try {
             const response = await fetch('/api/admin/users', {
@@ -278,7 +374,7 @@
                     'Authorization': 'Bearer ' + token,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ username, password, is_admin })
+                body: JSON.stringify({ username, password, is_admin, library_path })
             });
 
             const data = await response.json();
@@ -325,8 +421,78 @@
         }
     });
 
+    // Load system info (from server-side config)
+    async function loadSystemInfo() {
+        try {
+            const response = await fetch('/api/admin/system-info', {
+                headers: {
+                    'Authorization': 'Bearer ' + token
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                const ferricStatus = document.getElementById('ferricStatus');
+                const ferricToggle = document.getElementById('ferricToggle');
+                if (data.ferric_enabled) {
+                    ferricStatus.innerHTML = '<span style="color: #28a745;">✓ Enabled</span>';
+                    ferricToggle.checked = true;
+                } else {
+                    ferricStatus.innerHTML = '<span style="color: #dc3545;">✗ Disabled (files moved directly)</span>';
+                    ferricToggle.checked = false;
+                }
+
+                const spotifyStatus = document.getElementById('spotifyStatus');
+                if (data.spotify_enabled) {
+                    spotifyStatus.innerHTML = '<span style="color: #28a745;">✓ Enabled</span>';
+                } else {
+                    spotifyStatus.innerHTML = '<span style="color: #dc3545;">✗ Disabled</span>';
+                }
+            } else {
+                document.getElementById('ferricStatus').textContent = 'Failed to load';
+                document.getElementById('spotifyStatus').textContent = 'Failed to load';
+            }
+        } catch (error) {
+            document.getElementById('ferricStatus').textContent = 'Error';
+            document.getElementById('spotifyStatus').textContent = 'Error';
+        }
+    }
+
+    // Toggle Ferric processing
+    document.getElementById('ferricToggle').addEventListener('change', async (e) => {
+        const enabled = e.target.checked;
+
+        try {
+            const response = await fetch('/api/admin/config', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    key: 'ferric_enabled',
+                    value: enabled ? 'true' : 'false'
+                })
+            });
+
+            if (response.ok) {
+                showAlert(`Ferric processing ${enabled ? 'enabled' : 'disabled'}`, 'success');
+                loadSystemInfo(); // Refresh status display
+            } else {
+                const data = await response.json();
+                showAlert(data.error || 'Failed to update Ferric setting', 'error');
+                e.target.checked = !enabled; // Revert toggle on error
+            }
+        } catch (error) {
+            showAlert('Network error', 'error');
+            e.target.checked = !enabled; // Revert toggle on error
+        }
+    });
+
     // Load data on page load
     loadUsers();
     loadConfig();
+    loadSystemInfo();
 </script>
 {% endblock %}

@@ -1,17 +1,18 @@
 use crate::models::{LoginRequest, LoginResponse};
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
+use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde_json::json;
 use std::sync::Arc;
 
 pub async fn login(
     State(state): State<Arc<crate::AppState>>,
     Json(req): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, Response> {
+) -> Result<Response, Response> {
     // Verify credentials
     let user = state
         .db
@@ -38,17 +39,41 @@ pub async fn login(
             .into_response()
     })?;
 
-    Ok(Json(LoginResponse {
-        token,
+    // Create HTTP-only cookie for browser-based auth
+    let cookie = Cookie::build(("token", token.clone()))
+        .path("/")
+        .max_age(time::Duration::hours(state.auth.session_timeout_hours))
+        .same_site(SameSite::Lax)
+        .http_only(true)
+        .build();
+
+    // Return JSON response with Set-Cookie header
+    let response = Json(LoginResponse {
+        token: token.clone(),
         username: user.username,
         is_admin: user.is_admin,
-    }))
+    });
+
+    Ok((
+        [(header::SET_COOKIE, cookie.to_string())],
+        response,
+    )
+        .into_response())
 }
 
 pub async fn logout() -> impl IntoResponse {
-    // Since we're using JWT, logout is handled client-side
-    // This endpoint exists for completeness
-    Json(json!({
-        "message": "Logged out successfully"
-    }))
+    // Clear the authentication cookie
+    let cookie = Cookie::build(("token", ""))
+        .path("/")
+        .max_age(time::Duration::seconds(0))
+        .same_site(SameSite::Lax)
+        .http_only(true)
+        .build();
+
+    (
+        [(header::SET_COOKIE, cookie.to_string())],
+        Json(json!({
+            "message": "Logged out successfully"
+        })),
+    )
 }

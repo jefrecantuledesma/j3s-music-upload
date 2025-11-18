@@ -60,10 +60,17 @@ pub struct UploadResponse {
     pub success: bool,
     pub message: String,
     pub log_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YoutubeDownloadRequest {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpotifyDownloadRequest {
     pub url: String,
 }
 

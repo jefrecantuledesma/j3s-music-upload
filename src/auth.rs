@@ -79,18 +79,39 @@ pub async fn auth_middleware(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // Try to get token from Authorization header first
     let auth_header = request
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok());
 
     let token = if let Some(auth) = auth_header {
-        auth.strip_prefix("Bearer ").unwrap_or(auth)
+        // API-style: Authorization: Bearer <token>
+        Some(auth.strip_prefix("Bearer ").unwrap_or(auth).to_string())
     } else {
-        return Err(StatusCode::UNAUTHORIZED);
+        // Browser-style: Check for JWT in cookie
+        request
+            .headers()
+            .get(header::COOKIE)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|cookies| {
+                // Parse cookies and find "token" cookie
+                cookies
+                    .split(';')
+                    .find_map(|cookie| {
+                        let cookie = cookie.trim();
+                        if let Some(value) = cookie.strip_prefix("token=") {
+                            Some(value.to_string())
+                        } else {
+                            None
+                        }
+                    })
+            })
     };
 
-    match auth_state.verify_token(token) {
+    let token = token.ok_or(StatusCode::UNAUTHORIZED)?;
+
+    match auth_state.verify_token(&token) {
         Ok(claims) => {
             request
                 .extensions_mut()

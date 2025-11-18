@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Music Upload Service{% endblock %}
+
+{% block nav %}
+<a href="/upload">Upload</a>
+<a href="/logs">History</a>
+<a href="/settings">Settings</a>
+<a href="/admin" id="adminLink" style="display: none;">Admin</a>
+<button onclick="logout()">Logout</button>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px; color: #333;">My Settings</h2>
+
+<div id="alert" class="alert" style="display: none;"></div>
+
+<div style="max-width: 600px;">
+    <!-- Change Username -->
+    <div style="margin-bottom: 40px; border: 2px solid #667eea; border-radius: 10px; padding: 20px;">
+        <h3 style="color: #667eea; margin-bottom: 20px;">Change Username</h3>
+        <form id="changeUsernameForm">
+            <div class="form-group">
+                <label for="currentUsername">Current Username</label>
+                <input type="text" id="currentUsername" disabled style="background: #e9ecef;">
+            </div>
+
+            <div class="form-group">
+                <label for="newUsername">New Username (minimum 3 characters)</label>
+                <input type="text" id="newUsername" required minlength="3">
+            </div>
+
+            <button type="submit" class="btn" style="background: #667eea;">Update Username</button>
+        </form>
+    </div>
+
+    <!-- Change Password -->
+    <div style="margin-bottom: 40px; border: 2px solid #f39c12; border-radius: 10px; padding: 20px;">
+        <h3 style="color: #f39c12; margin-bottom: 20px;">Change Password</h3>
+        <form id="changePasswordForm">
+            <div class="form-group">
+                <label for="oldPassword">Current Password</label>
+                <input type="password" id="oldPassword" required>
+            </div>
+
+            <div class="form-group">
+                <label for="newPassword">New Password (minimum 8 characters)</label>
+                <input type="password" id="newPassword" required minlength="8">
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">Confirm New Password</label>
+                <input type="password" id="confirmPassword" required minlength="8">
+            </div>
+
+            <button type="submit" class="btn" style="background: #f39c12;">Change Password</button>
+        </form>
+    </div>
+
+    <!-- Library Info (read-only) -->
+    <div style="border: 2px solid #6c757d; border-radius: 10px; padding: 20px;">
+        <h3 style="color: #6c757d; margin-bottom: 20px;">Library Information</h3>
+        <div class="form-group">
+            <label>Your Library Path</label>
+            <input type="text" id="libraryPath" disabled style="background: #e9ecef; font-family: monospace;">
+            <small style="color: #666; display: block; margin-top: 5px;">
+                Contact an administrator to change your library path
+            </small>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const token = localStorage.getItem('token');
+    const username = localStorage.getItem('username');
+    const isAdmin = localStorage.getItem('isAdmin') === 'true';
+
+    if (!token) {
+        window.location.href = '/';
+    }
+
+    // Show admin link if user is admin
+    if (isAdmin) {
+        document.getElementById('adminLink').style.display = 'block';
+    }
+
+    // Load current user info
+    async function loadUserInfo() {
+        try {
+            const response = await fetch('/api/user/info', {
+                headers: {
+                    'Authorization': 'Bearer ' + token
+                }
+            });
+
+            const data = await response.json();
+
+            document.getElementById('currentUsername').value = data.username;
+            document.getElementById('libraryPath').value = data.library_path || 'Using default library';
+        } catch (error) {
+            showAlert('Failed to load user information', 'error');
+        }
+    }
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = '/';
+    }
+
+    function showAlert(message, type) {
+        const alert = document.getElementById('alert');
+        alert.textContent = message;
+        alert.className = 'alert alert-' + type;
+        alert.style.display = 'block';
+
+        setTimeout(() => {
+            alert.style.display = 'none';
+        }, 5000);
+    }
+
+    document.getElementById('changeUsernameForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const newUsername = document.getElementById('newUsername').value;
+
+        if (newUsername.length < 3) {
+            showAlert('Username must be at least 3 characters', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/user/change-username', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ new_username: newUsername })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showAlert('Username changed successfully. Please log in again.', 'success');
+                localStorage.setItem('username', newUsername);
+                setTimeout(() => {
+                    logout();
+                }, 2000);
+            } else {
+                showAlert(data.error || 'Failed to change username', 'error');
+            }
+        } catch (error) {
+            showAlert('Network error', 'error');
+        }
+    });
+
+    document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const oldPassword = document.getElementById('oldPassword').value;
+        const newPassword = document.getElementById('newPassword').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+
+        if (newPassword.length < 8) {
+            showAlert('New password must be at least 8 characters', 'error');
+            return;
+        }
+
+        if (newPassword !== confirmPassword) {
+            showAlert('New passwords do not match', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/user/change-password', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    old_password: oldPassword,
+                    new_password: newPassword
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showAlert('Password changed successfully', 'success');
+                document.getElementById('changePasswordForm').reset();
+            } else {
+                showAlert(data.error || 'Failed to change password', 'error');
+            }
+        } catch (error) {
+            showAlert('Network error', 'error');
+        }
+    });
+
+    // Load user info on page load
+    loadUserInfo();
+</script>
+{% endblock %}

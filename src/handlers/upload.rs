@@ -1,5 +1,4 @@
 use crate::auth::AuthUser;
-use crate::config::Config;
 use crate::models::{CreateUploadLog, UploadResponse};
 use crate::paths::get_user_directories;
 use axum::{
@@ -189,8 +188,8 @@ pub async fn upload_files(
             .into_response());
     }
 
-    // Process files with Ferric
-    let result = process_with_ferric(&state.config, &temp_dir, &music_dir, &uploaded_files).await;
+    // Process files with Ferric (check database for ferric_enabled setting)
+    let result = process_with_ferric(&state, &temp_dir, &music_dir, &uploaded_files).await;
 
     match result {
         Ok(_) => {
@@ -204,6 +203,7 @@ pub async fn upload_files(
                 success: true,
                 message: format!("Successfully uploaded and processed {} file(s)", file_count),
                 log_id: Some(log_id),
+                session_id: None,  // TODO: Add progress tracking to upload
             }))
         }
         Err(e) => {
@@ -229,26 +229,47 @@ pub async fn upload_files(
 }
 
 async fn process_with_ferric(
-    config: &Config,
+    state: &Arc<crate::AppState>,
     temp_dir: &PathBuf,
     music_dir: &PathBuf,
     files: &[std::path::PathBuf],
 ) -> anyhow::Result<()> {
-    // Call Ferric to process the files
-    let output = tokio::process::Command::new(&config.paths.ferric_path)
-        .arg("--input-dir")
-        .arg(temp_dir)
-        .arg("--output-dir")
-        .arg(music_dir)
-        .output()
-        .await?;
+    // Check database for ferric_enabled setting (overrides config file)
+    let ferric_enabled = state
+        .db
+        .get_ferric_enabled(&state.config)
+        .await
+        .unwrap_or(state.config.paths.ferric_enabled);
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Ferric processing failed: {}", stderr);
+    if ferric_enabled {
+        // Call Ferric to process the files
+        tracing::info!("Ferric enabled: processing files");
+        let output = tokio::process::Command::new(&state.config.paths.ferric_path)
+            .arg("--input-dir")
+            .arg(temp_dir)
+            .arg("--output-dir")
+            .arg(music_dir)
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Ferric processing failed: {}", stderr);
+        }
+    } else {
+        // Ferric disabled: just move files directly to music_dir
+        tracing::info!("Ferric disabled: moving files directly to music directory");
+        for file in files {
+            if let Some(filename) = file.file_name() {
+                let dest = music_dir.join(filename);
+                // Use copy+remove instead of rename to handle cross-filesystem moves
+                fs::copy(file, &dest).await?;
+                fs::remove_file(file).await?;
+            }
+        }
     }
 
-    // Clean up temp files
+    // Clean up remaining temp files
     for file in files {
         if file.exists() {
             fs::remove_file(file).await.ok();

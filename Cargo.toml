@@ -6,7 +6,10 @@ edition = "2021"
 [dependencies]
 # Web framework
 axum = { version = "0.7", features = ["multipart", "macros"] }
+axum-extra = { version = "0.9", features = ["cookie"] }
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+futures-util = "0.3"
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "trace", "cors", "limit"] }
 
@@ -46,6 +49,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
+time = "0.3"
 
 # Error handling
 anyhow = "1.0"

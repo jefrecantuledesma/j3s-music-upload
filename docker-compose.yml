@@ -21,12 +21,9 @@ services:
       - RUST_LOG=info
       - CONFIG_PATH=/app/config.toml
     networks:
-      - web
+      - media_stack_internal
 
 networks:
-  web:
+  media_stack_internal:
     external: true
-    # IMPORTANT: Change 'web' to match your reverse proxy's network
-    # Examples: caddy_default, nginx-proxy, traefik_default, media_stack_internal
-    # To find your network: docker network ls
-    # To create if needed: docker network create web
+    # Using the same network as media_stack services (Caddy, Navidrome, etc.)
